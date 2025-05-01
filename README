@@ -1,0 +1,43 @@
+# libscl++
+#- simple config language, smart config language, sensible config language
+
+this library is for (de)serializing SCL (pronounced sickle) config files.
+the design of SCL takes a lot of notes from TOML, however
+with a lot of the fat trimmed off.
+
+## specification
+
+### data types
+string
+	a utf-8 compatable sequence of bytes
+number
+	a double-precision floating point type
+
+### file layout
+a SCL file is composed of one or more tables or arrays,
+each of which contains a series of keys and values
+
+a table/array definition and a key-value pair may not 
+appear on the same line, however whitespace at the end or beginning of a line
+does not matter.
+
+a table is declared via the syntax:
+	[table]
+a table array is declared via the syntax:
+	[[tableArray]]
+
+tables may logically contain other tables, however this is done
+explicitly via the use of the table naming scheme, seperated by dots.
+as an example, a table "foo" containing the table "bar" is syntactically:
+	[foo]
+	[foo.bar]
+
+a table definition and an array definition may not occupy the same logical name
+that is to say,
+	[foo]
+	[bar]
+	[[bar]]
+	[[bar]]
+is not a valid SCL file.
+
+
