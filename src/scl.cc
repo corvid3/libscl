@@ -17,6 +17,9 @@ enum class TokenType
   Number,
   String,
   Equals,
+
+  ListStart,
+  ListEnd,
 };
 
 namespace morphemes {
@@ -32,6 +35,8 @@ constexpr auto key_morpheme_regex = "[a-zA-Z_]+"sv;
 constexpr auto number_morpheme_regex = "[0-9]+(\\.[0-9]+)?"sv;
 constexpr auto string_morpheme_regex = "\".*\""sv;
 constexpr auto equals_morpheme_regex = "="sv;
+constexpr auto list_start_morpheme_regex = "\\{"sv;
+constexpr auto list_end_morpheme_regex = "\\}"sv;
 
 using skip_morpheme =
   lexible::morpheme<skip_morpheme_regex, TokenType::WhitespaceSkip, 1000>;
@@ -53,6 +58,11 @@ using string_morpheme =
 using equals_morpheme =
   lexible::morpheme<equals_morpheme_regex, TokenType::Equals, 0>;
 
+using list_start_morpheme =
+  lexible::morpheme<list_start_morpheme_regex, TokenType::ListStart, 0>;
+using list_end_morpheme =
+  lexible::morpheme<list_end_morpheme_regex, TokenType::ListEnd, 0>;
+
 };
 
 using lexer = lexible::lexer<TokenType,
@@ -62,7 +72,9 @@ using lexer = lexible::lexer<TokenType,
                              morphemes::key_morpheme,
                              morphemes::number_morpheme,
                              morphemes::string_morpheme,
-                             morphemes::equals_morpheme>;
+                             morphemes::equals_morpheme,
+                             morphemes::list_start_morpheme,
+                             morphemes::list_end_morpheme>;
 
 struct State
 {
@@ -72,9 +84,32 @@ struct State
 
 using pctx = lexible::ParsingContext<lexer, State>;
 
+struct value_parse;
+
+struct array_parse_inner : pctx::Repeat<value_parse, false>
+{
+  scl::array operator()(State&, std::span<scl::value> s)
+  {
+    return scl::array(s.begin(), s.end());
+  }
+};
+
+struct array_parse
+  : pctx::AndThen<pctx::MorphemeParser<TokenType::ListStart>,
+                  array_parse_inner,
+                  pctx::MorphemeParser<TokenType::ListEnd>>
+{
+  scl::value operator()(State&, auto tup) const
+  {
+    auto [_0, list, _2] = tup;
+    return (list);
+  }
+};
+
 struct value_parse
   : pctx::Any<pctx::MorphemeParser<TokenType::Number>,
-              pctx::MorphemeParser<TokenType::String>>
+              pctx::MorphemeParser<TokenType::String>,
+              array_parse>
 {
   // number parser
   scl::value operator()(State&,
@@ -94,6 +129,11 @@ struct value_parse
     std::string s;
     s = in.substr(1, in.size() - 2);
     return scl::value(s);
+  }
+
+  scl::value operator()(State&, scl::value in, pctx::placeholder_t<2>) const
+  {
+    return in;
   }
 };
 

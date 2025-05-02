@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace scl {
 
@@ -17,6 +18,7 @@ class value;
 
 using string = std::string;
 using number = double;
+using array = std::vector<value>;
 
 using table = std::map<std::string, value>;
 using table_array = std::list<table>;
@@ -24,18 +26,33 @@ using table_array = std::list<table>;
 class value
 {
 public:
+  // TODO: uhhh get rid of this
   constexpr value() = default;
+
   constexpr value(std::string_view const& str)
     : m_value(std::string(str)) {};
   constexpr value(std::convertible_to<double> auto const num)
     : m_value(num) {};
+  constexpr value(array&& a)
+    : m_value(a) {};
 
+  value(value const& rhs)
+    : m_value(rhs.m_value) {};
+
+  value& operator=(value const& rhs)
+  {
+    m_value = rhs.m_value;
+    return *this;
+  }
+
+  array as_array() const { return std::get<array>(m_value); }
   number as_num() const { return std::get<number>(m_value); }
   string as_string() const { return std::get<string>(m_value); }
+
   void emplace(auto&& in) { m_value = in; }
 
 private:
-  std::variant<string, number> m_value;
+  std::variant<string, number, array> m_value;
 };
 
 class scl_search_exception : public std::exception

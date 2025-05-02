@@ -5,7 +5,7 @@
 auto const file_contents = R"(
 [table_name]
 [table.dot]
-m = 22.2
+m = {1 2 3}
 )";
 
 int
@@ -16,7 +16,8 @@ main()
   std::cout << std::format("num tables: {}\n", scl.num_tables());
 
   auto const table = scl.get_table("table.dot").second;
-  std::cout << std::format("{}\n", table.at("m").as_num());
-
-  // std::cout << std::format("{}, {}\n", n, k.as_num());
+  auto const arr = table.at("m").as_array();
+  for (auto const& v : arr) {
+    std::cout << std::format("{}\n", v.as_num());
+  }
 }
