@@ -187,7 +187,7 @@ struct table_array_parse
       table[v.first] = std::move(v.second);
 
     // trim the table names brackets
-    auto table_name_trimmed = table_name.substr(1, table_name.size() - 2);
+    auto table_name_trimmed = table_name.substr(2, table_name.size() - 3);
     return { std::string(table_name_trimmed), table };
   }
 };
