@@ -8,12 +8,12 @@ with a lot of the fat trimmed off.
 ## specification
 
 ### data types
-string
-	a utf-8 compatable sequence of bytes
-number
-	a double-precision floating point type
-array
-	a variably sized list containing values
+string  
+- a utf-8 compatable sequence of bytes
+number  
+- a double-precision floating point type
+array  
+- a variably sized list containing values
 
 ### file layout
 a SCL file is composed of one or more tables or arrays,
