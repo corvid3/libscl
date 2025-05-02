@@ -144,14 +144,7 @@ struct key_value_parse
   }
 };
 
-struct table_parse_inner : pctx::Repeat<key_value_parse, false>
-{
-  std::vector<key_value> operator()(State&, std::span<key_value> in) const
-  {
-    return std::vector(in.begin(), in.end());
-  }
-};
-
+using table_parse_inner = pctx::Repeat<key_value_parse, false>;
 using table_pair = std::pair<std::string, scl::table>;
 using table_array_pair = std::pair<std::string, scl::table_array>;
 
