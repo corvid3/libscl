@@ -110,7 +110,7 @@ public:
     auto out = m_tables.find(name);
     if (out == m_tables.end())
       throw scl_search_exception(name);
-    return *out;
+    return out->second;
   }
 
   auto& get_table_array(std::string_view name)
@@ -118,7 +118,7 @@ public:
     auto out = m_tableArrays.find(name);
     if (out == m_tableArrays.end())
       throw scl_search_exception(name);
-    return *out;
+    return out->second;
   }
 
   auto num_tables() const { return m_tables.size(); }
