@@ -45,9 +45,23 @@ public:
     return *this;
   }
 
-  array as_array() const { return std::get<array>(m_value); }
-  number as_num() const { return std::get<number>(m_value); }
-  string as_string() const { return std::get<string>(m_value); }
+  template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
+  auto const& get(auto const to_throw) const
+  {
+    if (std::holds_alternative<T>(m_value))
+      return std::get<T>(m_value);
+    else
+      throw EXCEPTION_TYPE(to_throw);
+  }
+
+  template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
+  auto& get(auto const to_throw)
+  {
+    if (std::holds_alternative<T>(m_value))
+      return std::get<T>(m_value);
+    else
+      throw EXCEPTION_TYPE(to_throw);
+  }
 
   void emplace(auto&& in) { m_value = in; }
 
@@ -80,6 +94,16 @@ public:
 
   // parses a scl_file
   scl_file(std::string_view);
+
+  bool table_exists(std::string_view name) const
+  {
+    return not(m_tables.find(name) == m_tables.end());
+  }
+
+  bool array_table_exists(std::string_view name) const
+  {
+    return not(m_tables.find(name) == m_tables.end());
+  }
 
   auto& get_table(std::string_view name)
   {

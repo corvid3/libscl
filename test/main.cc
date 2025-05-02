@@ -22,8 +22,10 @@ main()
   auto m = scl.get_table("table_name");
 
   auto const table = scl.get_table("table.dot").second;
-  auto const arr = table.at("m").as_array();
+  auto const arr =
+    table.at("m").get<scl::array>("expected an array at m in table");
   for (auto const& v : arr) {
-    std::cout << std::format("{}\n", v.as_num());
+    std::cout << std::format("{}\n",
+                             v.get<scl::number>("m should be a number"));
   }
 }
