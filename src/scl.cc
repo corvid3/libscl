@@ -25,7 +25,7 @@ enum class TokenType
 namespace morphemes {
 using namespace std::string_view_literals;
 
-constexpr auto skip_morpheme_regex = "\\s+"sv;
+constexpr auto skip_morpheme_regex = "(\\s+)|(#.*\\n)"sv;
 
 constexpr auto table_decl_regex = "\\[([a-zA-Z_]+)(\\.[a-zA-Z_]+)*\\]"sv;
 constexpr auto table_array_decl_regex =
@@ -238,6 +238,10 @@ scl_file::scl_file(std::string_view in)
 
   m_tables = std::move(s.m_tables);
   m_tableArrays = std::move(s.m_tableArrays);
+
+  for (auto& t : m_tables) {
+    std::cout << t.first << std::endl;
+  }
 };
 
 };
