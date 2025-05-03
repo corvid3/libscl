@@ -122,6 +122,22 @@ public:
     return out->second;
   }
 
+  auto const& get_table(std::string_view name) const
+  {
+    auto out = m_tables.find(name);
+    if (out == m_tables.end())
+      throw scl_search_exception(name);
+    return out->second;
+  }
+
+  auto const& get_table_array(std::string_view name) const
+  {
+    auto out = m_tableArrays.find(name);
+    if (out == m_tableArrays.end())
+      throw scl_search_exception(name);
+    return out->second;
+  }
+
   auto num_tables() const { return m_tables.size(); }
 
   void insert_table(std::string_view name, table&& t) &
@@ -191,22 +207,33 @@ operator"" _f()
   return a;
 };
 
-template<auto const FIELD_PTR, field_name_literal const NAME>
+template<auto const FIELD_PTR,
+         field_name_literal const NAME,
+         auto const DEFAULT_VALUE = std::nullopt>
 struct field
 {
   constexpr static auto ptr = FIELD_PTR;
   constexpr static std::string_view name = NAME.m_str;
+  constexpr static std::optional<
+    typename member_pointer_destructure<decltype(FIELD_PTR)>::value_type>
+    default_value = DEFAULT_VALUE;
 };
 
 template<typename T>
 concept has_scl_fields_descriptor = requires { typename T::scl_fields; };
 
-template<has_scl_fields_descriptor T>
-static void
-deserialize(T& into, auto table)
+// returns false if table doesn't exist
+template<has_scl_fields_descriptor T, bool err_on_no_table = true>
+static bool
+deserialize(T& into, scl_file const& file, std::string_view table_name)
 {
   using field_descriptor = T::scl_fields;
   using fields = field_descriptor::fields;
+
+  if (not file.table_exists(table_name))
+    return false;
+
+  auto const& table = file.get_table(table_name);
 
   std::apply(
     [&](auto... FIELDS) {
@@ -216,18 +243,34 @@ deserialize(T& into, auto table)
           using field_type =
             member_pointer_destructure<decltype(field_ptr)>::value_type;
           auto constexpr field_name = FIELD::name;
+          auto constexpr& field_default_value = FIELD::default_value;
 
           auto&& val = table.find(field_name);
-          if (val == table.end())
-            throw std::runtime_error(
-              std::format("unable to find value by name of {}", field_name));
 
-          into.*field_ptr = val->second.template get<field_type>(std::format(
-            "failed to get table value by name of {}, wrong type", field_name));
+          if (val == table.end()) {
+            if (not field_default_value.has_value())
+              throw std::runtime_error(
+                std::format("unable to find value by name of {} in table {}",
+                            field_name,
+                            table_name));
+
+            // hey we have a default value
+            into.*field_ptr = *field_default_value;
+          } else {
+            // TODO: give better type error reporting by giving the name of the
+            // type
+            into.*field_ptr = val->second.template get<field_type>(
+              std::format("failed to get table value by name of {}, wrong "
+                          "type, in table {}",
+                          field_name,
+                          table_name));
+          }
         }(FIELDS),
         ...);
     },
     fields());
+
+  return true;
 }
 
 };

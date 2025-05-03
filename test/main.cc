@@ -5,7 +5,6 @@
 auto const file_contents = R"(
 # test
 [structure]
-foo = 2
 str = "bar"
 )";
 
@@ -16,7 +15,7 @@ struct test
   scl::number a;
   scl::string b;
 
-  using scl_fields = scl::field_descriptor<scl::field<&test::a, "foo"_f>,
+  using scl_fields = scl::field_descriptor<scl::field<&test::a, "foo"_f, 4>,
                                            scl::field<&test::b, "str"_f>>;
 };
 
@@ -26,7 +25,7 @@ main()
   scl::scl_file scl(file_contents);
 
   test m;
-  scl::deserialize(m, scl.get_table("structure"));
+  scl::deserialize(m, scl, "structure");
 
   std::cout << std::format("{} {}\n", m.a, m.b);
 }
