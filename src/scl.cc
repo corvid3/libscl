@@ -238,10 +238,6 @@ scl_file::scl_file(std::string_view in)
 
   m_tables = std::move(s.m_tables);
   m_tableArrays = std::move(s.m_tableArrays);
-
-  for (auto& t : m_tables) {
-    std::cout << t.first << std::endl;
-  }
 };
 
 };

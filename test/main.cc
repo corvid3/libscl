@@ -4,28 +4,29 @@
 
 auto const file_contents = R"(
 # test
-[table_name]
-# test
-[table.dot]
-# test
-m = {1 2 3}
-# test
+[structure]
+foo = 2
+str = "bar"
 )";
+
+using scl::operator""_f;
+
+struct test
+{
+  scl::number a;
+  scl::string b;
+
+  using scl_fields = scl::field_descriptor<scl::field<&test::a, "foo"_f>,
+                                           scl::field<&test::b, "str"_f>>;
+};
 
 int
 main()
 {
   scl::scl_file scl(file_contents);
 
-  std::cout << std::format("num tables: {}\n", scl.num_tables());
+  test m;
+  scl::deserialize(m, scl.get_table("structure"));
 
-  auto m = scl.get_table("table_name");
-
-  auto const table = scl.get_table("table.dot").second;
-  auto const arr =
-    table.at("m").get<scl::array>("expected an array at m in table");
-  for (auto const& v : arr) {
-    std::cout << std::format("{}\n",
-                             v.get<scl::number>("m should be a number"));
-  }
+  std::cout << std::format("{} {}\n", m.a, m.b);
 }

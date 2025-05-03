@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -20,7 +21,7 @@ using string = std::string;
 using number = double;
 using array = std::vector<value>;
 
-using table = std::map<std::string, value>;
+using table = std::map<std::string, value, std::less<>>;
 using table_array = std::list<table>;
 
 class value
@@ -142,5 +143,91 @@ private:
   std::map<std::string, table, std::less<>> m_tables;
   std::map<std::string, table_array, std::less<>> m_tableArrays;
 };
+
+template<typename T>
+struct member_pointer_destructure;
+
+template<typename CLASS, typename X>
+struct member_pointer_destructure<X CLASS::*>
+{
+  using class_type = CLASS;
+  using value_type = X;
+};
+
+template<typename CLASS, typename X>
+struct member_pointer_destructure<X CLASS::* const>
+{
+  using class_type = CLASS;
+  using value_type = X;
+};
+
+template<typename T, typename OF>
+concept is_member_pointer_of = requires(T t) {
+  requires std::same_as<typename member_pointer_destructure<T>::class_type, OF>;
+};
+
+template<typename... Ts>
+struct field_descriptor
+{
+  using fields = std::tuple<Ts...>;
+};
+
+template<auto N>
+struct field_name_literal
+{
+  constexpr field_name_literal(char const (&str)[N])
+  {
+    std::copy(str, str + N, m_str);
+  }
+
+  constexpr operator std::string_view() { return m_str; }
+  char m_str[N]{};
+};
+
+template<field_name_literal a>
+constexpr auto
+operator"" _f()
+{
+  return a;
+};
+
+template<auto const FIELD_PTR, field_name_literal const NAME>
+struct field
+{
+  constexpr static auto ptr = FIELD_PTR;
+  constexpr static std::string_view name = NAME.m_str;
+};
+
+template<typename T>
+concept has_scl_fields_descriptor = requires { typename T::scl_fields; };
+
+template<has_scl_fields_descriptor T>
+static void
+deserialize(T& into, auto table)
+{
+  using field_descriptor = T::scl_fields;
+  using fields = field_descriptor::fields;
+
+  std::apply(
+    [&](auto... FIELDS) {
+      (
+        [&]<typename FIELD>(FIELD) {
+          auto constexpr field_ptr = FIELD::ptr;
+          using field_type =
+            member_pointer_destructure<decltype(field_ptr)>::value_type;
+          auto constexpr field_name = FIELD::name;
+
+          auto&& val = table.find(field_name);
+          if (val == table.end())
+            throw std::runtime_error(
+              std::format("unable to find value by name of {}", field_name));
+
+          into.*field_ptr = val->second.template get<field_type>(std::format(
+            "failed to get table value by name of {}, wrong type", field_name));
+        }(FIELDS),
+        ...);
+    },
+    fields());
+}
 
 };
