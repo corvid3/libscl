@@ -1,11 +1,12 @@
 #include "../src/scl.hh"
 #include <format>
 #include <iostream>
+#include <tuple>
 
 auto const file_contents = R"(
 # test
 [structure]
-str = "bar"
+str = "hello, world!"
 )";
 
 using scl::operator""_f;
@@ -27,5 +28,11 @@ main()
   test m;
   scl::deserialize(m, scl, "structure");
 
-  std::cout << std::format("{} {}\n", m.a, m.b);
+  scl::scl_file into;
+  scl::serialize(m, into, "structure");
+
+  test m2;
+  scl::deserialize(m2, into, "structure");
+
+  std::cout << std::format("{} {}\n", m2.a, m2.b);
 }

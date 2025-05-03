@@ -24,6 +24,13 @@ using array = std::vector<value>;
 using table = std::map<std::string, value, std::less<>>;
 using table_array = std::list<table>;
 
+struct typename_visitor
+{
+  std::string_view operator()(string const&) { return "string"; }
+  std::string_view operator()(number const&) { return "number"; }
+  std::string_view operator()(array const&) { return "array"; }
+};
+
 class value
 {
 public:
@@ -47,24 +54,30 @@ public:
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
-  auto const& get(auto const to_throw) const
+  auto const& get(auto const... to_throw) const
   {
     if (std::holds_alternative<T>(m_value))
       return std::get<T>(m_value);
     else
-      throw EXCEPTION_TYPE(to_throw);
+      throw EXCEPTION_TYPE(to_throw...);
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
-  auto& get(auto const to_throw)
+  auto& get(auto const... to_throw)
   {
     if (std::holds_alternative<T>(m_value))
       return std::get<T>(m_value);
     else
-      throw EXCEPTION_TYPE(to_throw);
+      throw EXCEPTION_TYPE(to_throw...);
   }
 
   void emplace(auto&& in) { m_value = in; }
+
+  std::string_view get_internal_type_name() const
+  {
+
+    return std::visit(typename_visitor(), m_value);
+  }
 
 private:
   std::variant<string, number, array> m_value;
@@ -92,6 +105,8 @@ class scl_file
 {
 public:
   friend struct State;
+
+  scl_file() = default;
 
   // parses a scl_file
   scl_file(std::string_view);
@@ -154,8 +169,6 @@ public:
   // std::string serialize() const;
 
 private:
-  scl_file() = default;
-
   std::map<std::string, table, std::less<>> m_tables;
   std::map<std::string, table_array, std::less<>> m_tableArrays;
 };
@@ -222,6 +235,60 @@ struct field
 template<typename T>
 concept has_scl_fields_descriptor = requires { typename T::scl_fields; };
 
+// thrown when a table by a name doesn't exist
+class deserialize_table_error final : public std::runtime_error
+{
+public:
+  deserialize_table_error(std::string_view table_name)
+    : std::runtime_error(
+        std::format("expected a table of name <{}> when deserializing",
+                    m_tableName))
+    , m_tableName(table_name) {};
+
+  std::string m_tableName;
+};
+
+// thrown when a field is not found and there is no
+// default value for the field
+class deserialize_field_error final : public std::runtime_error
+{
+public:
+  deserialize_field_error(std::string_view name, std::string_view table_name)
+    : std::runtime_error(std::format(
+        "expected a nonexisteent field by name of <{}> in table <{}>",
+        name,
+        table_name))
+    , m_fieldName(name)
+    , m_tableName(table_name) {};
+
+  std::string m_fieldName, m_tableName;
+};
+
+// thrown when a field is found in a table,
+// but the field is the wrong type
+class deserialize_field_type_error final : public std::runtime_error
+{
+public:
+  deserialize_field_type_error(std::string_view name,
+                               std::string_view table_name,
+                               std::string_view expected_type_name,
+                               std::string_view found_type_name)
+    : std::runtime_error(
+        std::format("failed to get table value by name of <{}>, expected "
+                    "<{}> but found <{}>"
+                    ", in table {}",
+                    name,
+                    expected_type_name,
+                    found_type_name,
+                    table_name))
+    , m_fieldName(name)
+    , m_tableName(table_name)
+    , m_expectedTypename(expected_type_name)
+    , m_foundTypename(found_type_name) {};
+
+  std::string m_fieldName, m_tableName, m_expectedTypename, m_foundTypename;
+};
+
 // returns false if table doesn't exist
 template<has_scl_fields_descriptor T, bool err_on_no_table = true>
 static bool
@@ -230,13 +297,17 @@ deserialize(T& into, scl_file const& file, std::string_view table_name)
   using field_descriptor = T::scl_fields;
   using fields = field_descriptor::fields;
 
-  if (not file.table_exists(table_name))
-    return false;
+  if (not file.table_exists(table_name)) {
+    if (not err_on_no_table)
+      return false;
+    else
+      throw deserialize_table_error(table_name);
+  }
 
   auto const& table = file.get_table(table_name);
 
   std::apply(
-    [&](auto... FIELDS) {
+    [&](auto const... FIELDS) {
       (
         [&]<typename FIELD>(FIELD) {
           auto constexpr field_ptr = FIELD::ptr;
@@ -249,21 +320,20 @@ deserialize(T& into, scl_file const& file, std::string_view table_name)
 
           if (val == table.end()) {
             if (not field_default_value.has_value())
-              throw std::runtime_error(
-                std::format("unable to find value by name of {} in table {}",
-                            field_name,
-                            table_name));
+              throw deserialize_field_error(field_name, table_name);
 
             // hey we have a default value
             into.*field_ptr = *field_default_value;
           } else {
             // TODO: give better type error reporting by giving the name of the
             // type
-            into.*field_ptr = val->second.template get<field_type>(
-              std::format("failed to get table value by name of {}, wrong "
-                          "type, in table {}",
-                          field_name,
-                          table_name));
+            into.*field_ptr =
+              val->second
+                .template get<field_type, deserialize_field_type_error>(
+                  field_name,
+                  table_name,
+                  typename_visitor()(field_type()),
+                  val->second.get_internal_type_name());
           }
         }(FIELDS),
         ...);
@@ -272,5 +342,32 @@ deserialize(T& into, scl_file const& file, std::string_view table_name)
 
   return true;
 }
+
+// replaces table if it already exists in the file
+template<has_scl_fields_descriptor T>
+static void
+serialize(T& from, scl_file& file, std::string_view table_name)
+{
+  using field_descriptor = T::scl_fields;
+  using fields = field_descriptor::fields;
+
+  table table_;
+
+  std::apply(
+    [&](auto const... FIELDS) {
+      (
+        [&]<typename FIELD>(FIELD) {
+          auto constexpr field_ptr = FIELD::ptr;
+          auto constexpr field_name = FIELD::name;
+
+          table_.insert_or_assign(std::string(field_name),
+                                  value(from.*field_ptr));
+        }(FIELDS),
+        ...);
+    },
+    fields());
+
+  file.insert_table(table_name, std::move(table_));
+};
 
 };
