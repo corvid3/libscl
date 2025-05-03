@@ -5,19 +5,22 @@
 
 auto const file_contents = R"(
 # test
-[structure]
+[agg]
+[[structure]]
 str = "hello, world!"
+[[structure]]
+str = "fooington"
+[[structure]]
+str = "barleybaz"
 )";
 
 using scl::operator""_f;
 
 struct test
 {
-  scl::number a;
   scl::string b;
 
-  using scl_fields = scl::field_descriptor<scl::field<&test::a, "foo"_f, 4>,
-                                           scl::field<&test::b, "str"_f>>;
+  using scl_fields = scl::field_descriptor<scl::field<&test::b, "str"_f>>;
 };
 
 int
@@ -25,14 +28,15 @@ main()
 {
   scl::scl_file scl(file_contents);
 
-  test m;
-  scl::deserialize(m, scl, "structure");
+  std::vector<test> m;
+  scl::deserialize(std::inserter(m, m.end()), scl, "structure");
 
   scl::scl_file into;
-  scl::serialize(m, into, "structure");
+  scl::serialize<test>(m, into, "structure");
 
-  test m2;
-  scl::deserialize(m2, into, "structure");
+  std::vector<test> m2;
+  scl::deserialize(std::inserter(m2, m2.end()), scl, "structure");
 
-  std::cout << std::format("{} {}\n", m2.a, m2.b);
+  for (auto const& m : m2)
+    std::cout << std::format("{}\n", m.b);
 }

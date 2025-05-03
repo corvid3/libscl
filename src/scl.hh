@@ -5,6 +5,7 @@
 #include <concepts>
 #include <exception>
 #include <format>
+#include <iterator>
 #include <list>
 #include <map>
 #include <string>
@@ -118,7 +119,7 @@ public:
 
   bool array_table_exists(std::string_view name) const
   {
-    return not(m_tables.find(name) == m_tables.end());
+    return not(m_tableArrays.find(name) == m_tableArrays.end());
   }
 
   auto& get_table(std::string_view name)
@@ -289,23 +290,13 @@ public:
   std::string m_fieldName, m_tableName, m_expectedTypename, m_foundTypename;
 };
 
-// returns false if table doesn't exist
-template<has_scl_fields_descriptor T, bool err_on_no_table = true>
-static bool
-deserialize(T& into, scl_file const& file, std::string_view table_name)
+// DO NOT CALL THIS
+template<typename fields>
+void
+internal_deserialize_field_unwrapper(auto& into,
+                                     auto& table,
+                                     auto const& table_name)
 {
-  using field_descriptor = T::scl_fields;
-  using fields = field_descriptor::fields;
-
-  if (not file.table_exists(table_name)) {
-    if (not err_on_no_table)
-      return false;
-    else
-      throw deserialize_table_error(table_name);
-  }
-
-  auto const& table = file.get_table(table_name);
-
   std::apply(
     [&](auto const... FIELDS) {
       (
@@ -325,8 +316,8 @@ deserialize(T& into, scl_file const& file, std::string_view table_name)
             // hey we have a default value
             into.*field_ptr = *field_default_value;
           } else {
-            // TODO: give better type error reporting by giving the name of the
-            // type
+            // TODO: give better type error reporting by giving the name of
+            // the type
             into.*field_ptr =
               val->second
                 .template get<field_type, deserialize_field_type_error>(
@@ -339,9 +330,94 @@ deserialize(T& into, scl_file const& file, std::string_view table_name)
         ...);
     },
     fields());
+};
+
+// handles array tables
+// must come first so the overload gets picked correctly
+template<typename T, bool err_on_no_table = true>
+  requires has_scl_fields_descriptor<typename T::value_type>
+static bool
+deserialize(std::insert_iterator<T> into_iter,
+            scl_file const& file,
+            std::string_view table_name)
+{
+  using deser_type = T::value_type;
+  using field_descriptor = deser_type::scl_fields;
+  using fields = field_descriptor::fields;
+
+  if (not file.array_table_exists(table_name)) {
+    if (not err_on_no_table)
+      return false;
+    else
+      throw deserialize_table_error(table_name);
+  }
+
+  auto const& array_table = file.get_table_array(table_name);
+
+  for (auto const& table : array_table) {
+    deser_type into;
+    internal_deserialize_field_unwrapper<fields>(into, table, table_name);
+    into_iter = std::move(into);
+  }
 
   return true;
 }
+
+// returns false if table doesn't exist
+template<has_scl_fields_descriptor T, bool err_on_no_table = true>
+static bool
+deserialize(T& into, scl_file const& file, std::string_view table_name)
+{
+  using field_descriptor = T::scl_fields;
+  using fields = field_descriptor::fields;
+
+  if (not file.table_exists(table_name)) {
+    if (not err_on_no_table)
+      return false;
+    else
+      throw deserialize_table_error(table_name);
+  }
+
+  auto const& table = file.get_table(table_name);
+
+  internal_deserialize_field_unwrapper<fields>(into, table, table_name);
+
+  return true;
+}
+
+template<has_scl_fields_descriptor T>
+static void
+serialize(std::convertible_to<std::span<T const>> auto from,
+          scl_file& file,
+          std::string_view table_name)
+{
+  using field_descriptor = T::scl_fields;
+  using fields = field_descriptor::fields;
+
+  table_array array;
+
+  for (auto const& val : from) {
+    table table_;
+
+    std::apply(
+      [&](auto const... FIELDS) {
+        (
+          [&]<typename FIELD>(FIELD) {
+            auto constexpr field_ptr = FIELD::ptr;
+            auto constexpr field_name = FIELD::name;
+
+            table_.insert_or_assign(std::string(field_name),
+                                    value(val.*field_ptr));
+          }(FIELDS),
+          ...);
+      },
+      fields());
+
+    array.push_back(std::move(table_));
+  }
+
+  file.insert_table_array(table_name, std::move(array));
+};
 
 // replaces table if it already exists in the file
 template<has_scl_fields_descriptor T>
