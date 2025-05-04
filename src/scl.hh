@@ -8,8 +8,11 @@
 #include <iterator>
 #include <list>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -29,10 +32,97 @@ struct typename_visitor
   std::string_view operator()(string const&) { return "string"; }
   std::string_view operator()(number const&) { return "number"; }
   std::string_view operator()(array const&) { return "array"; }
+
+  template<typename... T>
+  std::string_view operator()(std::tuple<T...>)
+  {
+    return "constrained array";
+  }
+};
+
+// thrown when an array->tuple deserialization/get
+// fails due to the array having the wrong size
+class wrong_size_exception : public std::runtime_error
+{
+public:
+  wrong_size_exception(auto const expected_size, auto const found_size)
+    : std::runtime_error(std::format("failed to convert a scl array to a "
+                                     "tuple, expected {} but found size of {}",
+                                     expected_size,
+                                     found_size)) {};
 };
 
 class value
 {
+  template<typename T, typename EXCEPTION_TYPE>
+  struct get_impl;
+
+  template<typename T, typename EXCEPTION_TYPE>
+  struct get_impl
+  {
+    auto operator()(value const& v, auto const... to_throw) const
+    {
+      if (std::holds_alternative<T>(v.m_value))
+        return std::get<T>(v.m_value);
+      else
+        throw EXCEPTION_TYPE(to_throw...);
+
+      std::unreachable();
+    }
+
+    auto& operator()(value const& v, auto const... to_throw)
+    {
+      if (std::holds_alternative<T>(v.m_value))
+        return std::get<T>(v.m_value);
+      else
+        throw EXCEPTION_TYPE(to_throw...);
+
+      std::unreachable();
+    }
+  };
+
+  // for tuple types
+  template<typename... T, typename EXCEPTION_TYPE>
+  struct get_impl<std::tuple<T...>, EXCEPTION_TYPE>
+  {
+
+    template<std::size_t... I>
+    void handle(auto const& arr,
+                std::tuple<T...>& tup,
+                std::index_sequence<I...>,
+                auto const... to_throw) const
+    {
+      (
+        [&]() {
+          std::get<I>(tup) =
+            arr.at(I).template get<T, EXCEPTION_TYPE>(to_throw...);
+        }(),
+        ...);
+    }
+
+    auto operator()(value const& v, auto const... to_throw) const
+    {
+      constexpr auto expected_size = sizeof...(T);
+
+      if (std::holds_alternative<scl::array>(v.m_value)) {
+        auto const& arr = std::get<scl::array>(v.m_value);
+
+        if (arr.size() != expected_size)
+          throw wrong_size_exception(expected_size, arr.size());
+
+        // for each T, go to each index in the array & call get,
+        // then push them into a tuple and return the tuple
+        using index_seq = std::index_sequence_for<T...>;
+        std::tuple<T...> out;
+
+        handle(arr, out, index_seq(), to_throw...);
+
+        return out;
+      } else
+        throw EXCEPTION_TYPE(to_throw...);
+    }
+  };
+
 public:
   // TODO: uhhh get rid of this
   constexpr value() = default;
@@ -54,21 +144,15 @@ public:
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
-  auto const& get(auto const... to_throw) const
+  auto get(auto const... to_throw) const
   {
-    if (std::holds_alternative<T>(m_value))
-      return std::get<T>(m_value);
-    else
-      throw EXCEPTION_TYPE(to_throw...);
+    return get_impl<T, EXCEPTION_TYPE>()(*this, to_throw...);
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
   auto& get(auto const... to_throw)
   {
-    if (std::holds_alternative<T>(m_value))
-      return std::get<T>(m_value);
-    else
-      throw EXCEPTION_TYPE(to_throw...);
+    return get_impl<T, EXCEPTION_TYPE>()(*this, to_throw...);
   }
 
   void emplace(auto&& in) { m_value = in; }

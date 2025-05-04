@@ -7,7 +7,7 @@ auto const file_contents = R"(
 # test
 
 [test]
-bag = "bilbo"
+bag = { 1 2 3 }
 
 [test.inner]
 agga = "inbob"
@@ -26,11 +26,11 @@ struct inner_t
 
 struct test
 {
-  scl::string b;
+  std::tuple<scl::number, scl::number, scl::number> c;
 
   inner_t inner;
 
-  using scl_fields = scl::field_descriptor<scl::field<&test::b, "bag"_f>>;
+  using scl_fields = scl::field_descriptor<scl::field<&test::c, "bag"_f>>;
   using scl_recurse =
     scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
 };
@@ -43,11 +43,6 @@ main()
   test t;
   scl::deserialize(t, scl, "test");
 
-  scl::scl_file n;
-  scl::serialize(t, n, "test");
-
-  test t2;
-  scl::deserialize(t2, n, "test");
-
-  std::cout << std::format("{}, {}", t2.b, t2.inner.agga);
+  std::cout << std::format(
+    "{} {} {}", std::get<0>(t.c), std::get<1>(t.c), std::get<2>(t.c));
 }
