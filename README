@@ -42,4 +42,64 @@ that is to say,
 	[[bar]]
 is not a valid SCL file.
 
+## using the API
 
+The SCL API for C++ is split into two different categories, the basic SCL interface
+and the metaprogramming interface. The metaprogramming interface is based off of the 
+basic interface, but simplifies serializing and deserializing data from C++.
+
+### values
+SCL values in C++ are represented with the data structure scl::value.
+The inner value of a scl::value can be accessed with the method
+	`.get<typename, exception>(ERR_REPORT...)`.
+where `typename` is the requested type (scl::number, scl::string, scl::array),
+and ERR_REPORT... is a variadic list of arguments to pass to the type exception in the case
+	that the requested type is not available.
+NOTE: by default, exception type defaults to std::runtime_error
+
+### scl files
+SCL files in C++ are accessed thru the scl::scl_file type, which contains all of
+the tables and table-arrays of a SCL file.
+
+The method API is named clearly enough that it can be used as documentation.
+
+### deserialization metaprogramming interface
+The metaprogramming deserialization interface relies on data types
+to be defined, which loosely relate to a table within a scl_file,
+and a list of tag types that tell the interface how to deserialize data.
+
+Firstly, define a data structure representing a table that you want to decode,
+e.g.
+struct Foo {
+	scl::number bar;
+	scl::string zoo;
+};
+then, using scl::field, scl::field_descriptor, and scl::field_name_literal, define
+a using by the name of "scl_fields" within the data structure. Use the provided
+operator::""_f in the library to define scl::field_name_literals.
+e.g.
+struct Foo {
+	scl::number bar;
+	scl::string zoo;
+
+	using scl_fields =
+		scl::field_descriptor<
+			scl::field<&test::bar, "bar"_f>,
+			scl::field<&test::zoo, "ZOO_"_f>
+		>;
+}
+
+As visible in the example, the name of the C++ field and the name of
+the requested SCL field are allowed to differ.
+
+When deserialization is requested, use the scl::deserialize() procedure,
+passing it a reference to the type, a reference to a loaded scl::scl_file, 
+	and the table name that represents the data structure.
+
+e.g.
+Foo f;
+scl::scl_file file(...);
+scl::deserialize(f, file, "someTableName");
+
+Serialization with metaprogramming may be done if a type contains a declaration of scl_fields too,
+however one must use the scl::serialize procedure.
