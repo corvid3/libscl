@@ -45,4 +45,10 @@ main()
 
   std::cout << std::format(
     "{} {} {}", std::get<0>(t.c), std::get<1>(t.c), std::get<2>(t.c));
+
+  scl::value x(std::make_tuple(1., 3, "hello"));
+  std::tuple<scl::number, scl::number, scl::string> m = x;
+
+  scl::scl_file a;
+  scl::serialize(t, a, "test");
 }

@@ -92,12 +92,9 @@ class value
                 std::index_sequence<I...>,
                 auto const... to_throw) const
     {
-      (
-        [&]() {
-          std::get<I>(tup) =
-            arr.at(I).template get<T, EXCEPTION_TYPE>(to_throw...);
-        }(),
-        ...);
+      ((std::get<I>(tup) =
+          arr.at(I).template get<T, EXCEPTION_TYPE>(to_throw...)),
+       ...);
     }
 
     auto operator()(value const& v, auto const... to_throw) const
@@ -130,9 +127,22 @@ public:
   constexpr value(std::string_view const& str)
     : m_value(std::string(str)) {};
   constexpr value(std::convertible_to<double> auto const num)
-    : m_value(num) {};
+    : m_value(double(num)) {};
   constexpr value(array&& a)
     : m_value(a) {};
+
+  template<typename... Ts>
+  constexpr value(std::tuple<Ts...> const& data)
+  {
+    std::vector<value> arr;
+    std::apply(
+      [&](Ts const&... v) {
+        (arr.push_back(value(v)), ...);
+        ;
+      },
+      data);
+    m_value = std::move(arr);
+  }
 
   value(value const& rhs)
     : m_value(rhs.m_value) {};
@@ -141,6 +151,12 @@ public:
   {
     m_value = rhs.m_value;
     return *this;
+  }
+
+  template<typename... Ts>
+  operator std::tuple<Ts...>() const
+  {
+    return this->get<std::tuple<Ts...>>("expected array when casting to tuple");
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
@@ -375,245 +391,264 @@ public:
   std::string m_fieldName, m_tableName, m_expectedTypename, m_foundTypename;
 };
 
-// DO NOT CALL THIS
-template<typename fields>
-void
-internal_deserialize_field_unwrapper(auto& into,
-                                     auto& table,
-                                     auto const& table_name)
+// implementation details for class deserialization
+class _deser_impl
 {
-  std::apply(
-    [&](auto const... FIELDS) {
-      (
-        [&]<typename FIELD>(FIELD) {
-          auto constexpr field_ptr = FIELD::ptr;
-          using field_type =
-            member_pointer_destructure<decltype(field_ptr)>::value_type;
-          auto constexpr field_name = FIELD::name;
-          auto constexpr& field_default_value = FIELD::default_value;
+  template<typename fields>
+  static void internal_deserialize_field_unwrapper(auto& into,
+                                                   auto& table,
+                                                   auto const& table_name)
+  {
+    std::apply(
+      [&](auto const... FIELDS) {
+        (
+          [&]<typename FIELD>(FIELD) {
+            auto constexpr field_ptr = FIELD::ptr;
+            using field_type =
+              member_pointer_destructure<decltype(field_ptr)>::value_type;
+            auto constexpr field_name = FIELD::name;
+            auto constexpr& field_default_value = FIELD::default_value;
 
-          auto&& val = table.find(field_name);
+            auto&& val = table.find(field_name);
 
-          if (val == table.end()) {
-            if (not field_default_value.has_value())
-              throw deserialize_field_error(field_name, table_name);
+            if (val == table.end()) {
+              if (not field_default_value.has_value())
+                throw deserialize_field_error(field_name, table_name);
 
-            // hey we have a default value
-            into.*field_ptr = *field_default_value;
-          } else {
-            // TODO: give better type error reporting by giving the name of
-            // the type
-            into.*field_ptr =
-              val->second
-                .template get<field_type, deserialize_field_type_error>(
-                  field_name,
-                  table_name,
-                  typename_visitor()(field_type()),
-                  val->second.get_internal_type_name());
-          }
-        }(FIELDS),
-        ...);
-    },
-    fields());
-};
+              // hey we have a default value
+              into.*field_ptr = *field_default_value;
+            } else {
+              // TODO: give better type error reporting by giving the name of
+              // the type
+              into.*field_ptr =
+                val->second
+                  .template get<field_type, deserialize_field_type_error>(
+                    field_name,
+                    table_name,
+                    typename_visitor()(field_type()),
+                    val->second.get_internal_type_name());
+            }
+          }(FIELDS),
+          ...);
+      },
+      fields());
+  };
 
-template<typename recurses>
-void
-internal_deserialize_recurse_wrapper(auto& into,
-                                     scl_file const& file,
-                                     auto const& table_name)
-{
-  std::apply(
-    [&](auto const... RECURSES) {
-      (
-        [&]<typename RECURSE>(RECURSE) {
-          auto constexpr field_ptr = RECURSE::ptr;
-          // using field_type =
-          //   member_pointer_destructure<decltype(field_ptr)>::value_type;
-          auto field_name = std::format("{}.{}", table_name, RECURSE::name);
-          auto constexpr& field_default_value = RECURSE::default_value;
+  template<typename recurses>
+  static void internal_deserialize_recurse_wrapper(auto& into,
+                                                   scl_file const& file,
+                                                   auto const& table_name)
+  {
+    std::apply(
+      [&](auto const... RECURSES) {
+        (
+          [&]<typename RECURSE>(RECURSE) {
+            auto constexpr field_ptr = RECURSE::ptr;
+            // using field_type =
+            //   member_pointer_destructure<decltype(field_ptr)>::value_type;
+            auto field_name = std::format("{}.{}", table_name, RECURSE::name);
+            auto constexpr& field_default_value = RECURSE::default_value;
 
-          auto& inner = into.*field_ptr;
+            auto& inner = into.*field_ptr;
 
-          if (not deserialize(inner, file, field_name))
-            if (field_default_value)
-              inner = *field_default_value;
-        }(RECURSES),
-        ...);
-    },
-    recurses());
-}
-
-template<typename T>
-  requires has_scl_recurse_descriptor<T>
-static void
-inner_deserialize_recurse(T& into, scl_file const& file, auto const& table_name)
-{
-  using recurse_descriptor = T::scl_recurse;
-  using recurses = recurse_descriptor::fields;
-  internal_deserialize_recurse_wrapper<recurses>(into, file, table_name);
-}
-
-template<typename T>
-  requires(not has_scl_recurse_descriptor<T>)
-static void
-inner_deserialize_recurse(auto&, scl_file const&, auto const&)
-{
-}
-
-// handles array tables
-// must come first so the overload gets picked correctly
-template<typename T, bool err_on_no_table = true>
-  requires has_scl_fields_descriptor<typename T::value_type>
-static bool
-deserialize(std::insert_iterator<T> into_iter,
-            scl_file const& file,
-            std::string_view table_name)
-{
-  using deser_type = T::value_type;
-  using field_descriptor = deser_type::scl_fields;
-  using fields = field_descriptor::fields;
-
-  if (not file.array_table_exists(table_name)) {
-    if (not err_on_no_table)
-      return false;
-    else
-      throw deserialize_table_error(table_name);
+            if (not deserialize(inner, file, field_name))
+              if (field_default_value)
+                inner = *field_default_value;
+          }(RECURSES),
+          ...);
+      },
+      recurses());
   }
 
-  auto const& array_table = file.get_table_array(table_name);
+  template<typename T>
+    requires has_scl_recurse_descriptor<T>
+  static void inner_deserialize_recurse(T& into,
+                                        scl_file const& file,
+                                        auto const& table_name)
+  {
+    using recurse_descriptor = T::scl_recurse;
+    using recurses = recurse_descriptor::fields;
+    internal_deserialize_recurse_wrapper<recurses>(into, file, table_name);
+  }
 
-  for (auto const& table : array_table) {
-    deser_type into;
+  template<typename T>
+    requires(not has_scl_recurse_descriptor<T>)
+  static void inner_deserialize_recurse(auto&, scl_file const&, auto const&)
+  {
+  }
+
+  template<typename T, bool err_on_no_table = true>
+    requires has_scl_fields_descriptor<typename T::value_type>
+  static bool deserialize(std::insert_iterator<T> into_iter,
+                          scl_file const& file,
+                          std::string_view table_name)
+  {
+    using deser_type = T::value_type;
+    using field_descriptor = deser_type::scl_fields;
+    using fields = field_descriptor::fields;
+
+    if (not file.array_table_exists(table_name)) {
+      if (not err_on_no_table)
+        return false;
+      else
+        throw deserialize_table_error(table_name);
+    }
+
+    auto const& array_table = file.get_table_array(table_name);
+
+    for (auto const& table : array_table) {
+      deser_type into;
+      internal_deserialize_field_unwrapper<fields>(into, table, table_name);
+      inner_deserialize_recurse<T>(into, file, table_name);
+      into_iter = std::move(into);
+    }
+
+    return true;
+  }
+
+  // returns false if table doesn't exist
+  template<has_scl_fields_descriptor T, bool err_on_no_table = true>
+  static bool deserialize(T& into,
+                          scl_file const& file,
+                          std::string_view table_name)
+  {
+    using field_descriptor = T::scl_fields;
+    using fields = field_descriptor::fields;
+
+    if (not file.table_exists(table_name)) {
+      if (not err_on_no_table)
+        return false;
+      else
+        throw deserialize_table_error(table_name);
+    }
+
+    auto const& table = file.get_table(table_name);
+
     internal_deserialize_field_unwrapper<fields>(into, table, table_name);
     inner_deserialize_recurse<T>(into, file, table_name);
-    into_iter = std::move(into);
+
+    return true;
   }
 
-  return true;
-}
+  friend bool deserialize(auto&,
+                          scl_file const&,
+                          std::convertible_to<std::string_view> auto);
+};
 
-// returns false if table doesn't exist
-template<has_scl_fields_descriptor T, bool err_on_no_table = true>
-static bool
-deserialize(T& into, scl_file const& file, std::string_view table_name)
+// implementation details for the serialization interface
+class _ser_impl
 {
-  using field_descriptor = T::scl_fields;
-  using fields = field_descriptor::fields;
+  template<typename recurses>
+  static void internal_serialize_recurse_wrapper(auto& into,
+                                                 scl_file& file,
+                                                 auto const& table_name)
+  {
+    std::apply(
+      [&](auto const... RECURSES) {
+        (
+          [&]<typename RECURSE>(RECURSE) {
+            auto constexpr field_ptr = RECURSE::ptr;
+            // using field_type =
+            //   member_pointer_destructure<decltype(field_ptr)>::value_type;
+            auto field_name = std::format("{}.{}", table_name, RECURSE::name);
 
-  if (not file.table_exists(table_name)) {
-    if (not err_on_no_table)
-      return false;
-    else
-      throw deserialize_table_error(table_name);
+            auto& inner = into.*field_ptr;
+
+            serialize(inner, file, field_name);
+          }(RECURSES),
+          ...);
+      },
+      recurses());
   }
 
-  auto const& table = file.get_table(table_name);
+  template<typename T>
+    requires has_scl_recurse_descriptor<T>
+  static void inner_serialize_recurse(T& into,
+                                      scl_file& file,
+                                      auto const& table_name)
+  {
+    using recurse_descriptor = T::scl_recurse;
+    using recurses = recurse_descriptor::fields;
+    internal_serialize_recurse_wrapper<recurses>(into, file, table_name);
+  }
 
-  internal_deserialize_field_unwrapper<fields>(into, table, table_name);
-  inner_deserialize_recurse<T>(into, file, table_name);
+  template<typename T>
+    requires(not has_scl_recurse_descriptor<T>)
+  static void inner_serialize_recurse(T&, scl_file&, auto const&)
+  {
+  }
 
-  return true;
-}
+  template<typename fields>
+  static void inner_serialize_fields(auto& from, auto& table)
+  {
+    std::apply(
+      [&](auto const... FIELDS) {
+        (
+          [&]<typename FIELD>(FIELD) {
+            auto constexpr field_ptr = FIELD::ptr;
+            auto constexpr field_name = FIELD::name;
 
-template<typename recurses>
-void
-internal_serialize_recurse_wrapper(auto& into,
-                                   scl_file& file,
-                                   auto const& table_name)
-{
-  std::apply(
-    [&](auto const... RECURSES) {
-      (
-        [&]<typename RECURSE>(RECURSE) {
-          auto constexpr field_ptr = RECURSE::ptr;
-          // using field_type =
-          //   member_pointer_destructure<decltype(field_ptr)>::value_type;
-          auto field_name = std::format("{}.{}", table_name, RECURSE::name);
+            table.insert_or_assign(std::string(field_name),
+                                   value(from.*field_ptr));
+          }(FIELDS),
+          ...);
+      },
+      fields());
+  }
 
-          auto& inner = into.*field_ptr;
+  template<has_scl_fields_descriptor T>
+  static void serialize(std::convertible_to<std::span<T const>> auto from,
+                        scl_file& file,
+                        std::string_view table_name)
+  {
+    using field_descriptor = T::scl_fields;
+    using fields = field_descriptor::fields;
 
-          serialize(inner, file, field_name);
-        }(RECURSES),
-        ...);
-    },
-    recurses());
-}
+    table_array array;
 
-template<typename T>
-  requires has_scl_recurse_descriptor<T>
-static void
-inner_serialize_recurse(T& into, scl_file& file, auto const& table_name)
-{
-  using recurse_descriptor = T::scl_recurse;
-  using recurses = recurse_descriptor::fields;
-  internal_serialize_recurse_wrapper<recurses>(into, file, table_name);
-}
+    for (auto const& val : from) {
+      table table_;
 
-template<typename T>
-  requires(not has_scl_recurse_descriptor<T>)
-static void
-inner_serialize_recurse(T&, scl_file&, auto const&)
-{
-}
+      inner_serialize_fields<fields>(from, table_);
+      inner_serialize_recurse<T>(from, file, table_name);
 
-template<typename fields>
-static void
-inner_serialize_fields(auto& from, auto& table)
-{
+      array.push_back(std::move(table_));
+    }
 
-  std::apply(
-    [&](auto const... FIELDS) {
-      (
-        [&]<typename FIELD>(FIELD) {
-          auto constexpr field_ptr = FIELD::ptr;
-          auto constexpr field_name = FIELD::name;
+    file.insert_table_array(table_name, std::move(array));
+  };
 
-          table.insert_or_assign(std::string(field_name),
-                                 value(from.*field_ptr));
-        }(FIELDS),
-        ...);
-    },
-    fields());
-}
+  // replaces table if it already exists in the file
+  template<has_scl_fields_descriptor T>
+  static void serialize(T& from, scl_file& file, std::string_view table_name)
+  {
+    using field_descriptor = T::scl_fields;
+    using fields = field_descriptor::fields;
 
-template<has_scl_fields_descriptor T>
-static void
-serialize(std::convertible_to<std::span<T const>> auto from,
-          scl_file& file,
-          std::string_view table_name)
-{
-  using field_descriptor = T::scl_fields;
-  using fields = field_descriptor::fields;
-
-  table_array array;
-
-  for (auto const& val : from) {
     table table_;
 
     inner_serialize_fields<fields>(from, table_);
     inner_serialize_recurse<T>(from, file, table_name);
 
-    array.push_back(std::move(table_));
-  }
+    file.insert_table(table_name, std::move(table_));
+  };
 
-  file.insert_table_array(table_name, std::move(array));
+  friend void serialize(auto const&, scl_file&, std::string_view);
 };
 
-// replaces table if it already exists in the file
-template<has_scl_fields_descriptor T>
-static void
-serialize(T& from, scl_file& file, std::string_view table_name)
+// returns false if table doesn't exist
+bool
+deserialize(auto& into,
+            scl_file const& file,
+            std::convertible_to<std::string_view> auto table_name)
 {
-  using field_descriptor = T::scl_fields;
-  using fields = field_descriptor::fields;
+  return _deser_impl::deserialize(into, file, table_name);
+}
 
-  table table_;
-
-  inner_serialize_fields<fields>(from, table_);
-  inner_serialize_recurse<T>(from, file, table_name);
-
-  file.insert_table(table_name, std::move(table_));
-};
+void
+serialize(auto const& from, scl_file& into, std::string_view table_name)
+{
+  _ser_impl::serialize(from, into, table_name);
+}
 
 };
