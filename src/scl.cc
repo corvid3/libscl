@@ -91,7 +91,7 @@ struct array_parse
                   pctx::Repeat<value_parse, false>,
                   pctx::MorphemeParser<TokenType::ListEnd>>
 {
-  scl::value operator()(State&, auto tup) const
+  scl::value operator()(State&, auto tup)
   {
     auto [_0, list, _2] = tup;
     return (list);
@@ -104,9 +104,7 @@ struct value_parse
               array_parse>
 {
   // number parser
-  scl::value operator()(State&,
-                        std::string_view in,
-                        pctx::placeholder_t<0>) const
+  scl::value operator()(State&, std::string_view in, pctx::placeholder_t<0>)
   {
     double d;
     std::from_chars(in.begin(), in.end(), d);
@@ -114,16 +112,14 @@ struct value_parse
   }
 
   // string parser
-  scl::value operator()(State&,
-                        std::string_view in,
-                        pctx::placeholder_t<1>) const
+  scl::value operator()(State&, std::string_view in, pctx::placeholder_t<1>)
   {
     std::string s;
     s = in.substr(1, in.size() - 2);
     return scl::value(s);
   }
 
-  scl::value operator()(State&, scl::value in, pctx::placeholder_t<2>) const
+  scl::value operator()(State&, scl::value in, pctx::placeholder_t<2>)
   {
     return in;
   }
@@ -136,7 +132,7 @@ struct key_value_parse
                   pctx::MorphemeParser<TokenType::Equals>,
                   value_parse>
 {
-  key_value operator()(State&, auto tup) const
+  key_value operator()(State&, auto tup)
   {
     auto const [name, _0, value] = tup;
 
@@ -151,14 +147,14 @@ using table_array_pair = std::pair<std::string, scl::table_array>;
 struct table_parse
   : pctx::AndThen<pctx::MorphemeParser<TokenType::TableDecl>, table_parse_inner>
 {
-  std::pair<std::string, scl::table> operator()(State&, auto in) const
+  std::pair<std::string, scl::table> operator()(State&, auto in)
   {
-    auto [table_name, values] = in;
+    auto const& [table_name, values] = in;
 
     scl::table table;
 
     for (auto const& v : values)
-      table[v.first] = std::move(v.second);
+      table.insert_or_assign(v.first, std::move(v.second));
 
     // trim the table names brackets
     auto table_name_trimmed = table_name.substr(1, table_name.size() - 2);
@@ -170,14 +166,14 @@ struct table_array_parse
   : pctx::AndThen<pctx::MorphemeParser<TokenType::TableArrayDecl>,
                   table_parse_inner>
 {
-  std::pair<std::string, scl::table> operator()(State&, auto in) const
+  std::pair<std::string, scl::table> operator()(State&, auto in)
   {
-    auto [table_name, values] = in;
+    auto const& [table_name, values] = in;
 
     scl::table table;
 
     for (auto const& v : values)
-      table[v.first] = std::move(v.second);
+      table.insert_or_assign(v.first, std::move(v.second));
 
     // trim the table names brackets
     auto table_name_trimmed = table_name.substr(2, table_name.size() - 4);
@@ -188,9 +184,7 @@ struct table_array_parse
 struct toplevel_parse : pctx::Any<table_parse, table_array_parse>
 {
   // TODO: convert these to rvalues?
-  pctx::empty_t operator()(State& s,
-                           table_pair tbl,
-                           pctx::placeholder_t<0>) const
+  pctx::empty_t operator()(State& s, table_pair tbl, pctx::placeholder_t<0>)
   {
     if (s.m_tables.contains(tbl.first))
       throw std::runtime_error(
@@ -205,9 +199,7 @@ struct toplevel_parse : pctx::Any<table_parse, table_array_parse>
     return {};
   }
 
-  pctx::empty_t operator()(State& s,
-                           table_pair tbl,
-                           pctx::placeholder_t<1>) const
+  pctx::empty_t operator()(State& s, table_pair tbl, pctx::placeholder_t<1>)
   {
     if (s.m_tables.contains(tbl.first))
       throw std::runtime_error(

@@ -29,6 +29,7 @@ using table_array = std::list<table>;
 
 struct typename_visitor
 {
+  std::string_view operator()(std::monostate const&) { return "uninitialized"; }
   std::string_view operator()(string const&) { return "string"; }
   std::string_view operator()(number const&) { return "number"; }
   std::string_view operator()(array const&) { return "array"; }
@@ -57,6 +58,7 @@ class value
   template<typename T, typename EXCEPTION_TYPE>
   struct get_impl;
 
+  // for everything but tuple types
   template<typename T, typename EXCEPTION_TYPE>
   struct get_impl
   {
@@ -121,8 +123,10 @@ class value
   };
 
 public:
-  // TODO: uhhh get rid of this
-  constexpr value() = default;
+  struct init_empty_m
+  {};
+
+  constexpr value(init_empty_m) {};
 
   constexpr value(std::string_view const& str)
     : m_value(std::string(str)) {};
@@ -144,43 +148,45 @@ public:
     m_value = std::move(arr);
   }
 
-  value(value const& rhs)
+  constexpr value(value const& rhs)
     : m_value(rhs.m_value) {};
 
-  value& operator=(value const& rhs)
+  constexpr value& operator=(value const& rhs)
   {
     m_value = rhs.m_value;
     return *this;
   }
 
   template<typename... Ts>
-  operator std::tuple<Ts...>() const
+  constexpr operator std::tuple<Ts...>() const
   {
     return this->get<std::tuple<Ts...>>("expected array when casting to tuple");
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
-  auto get(auto const... to_throw) const
+  constexpr auto get(auto const... to_throw) const
   {
     return get_impl<T, EXCEPTION_TYPE>()(*this, to_throw...);
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
-  auto& get(auto const... to_throw)
+  constexpr auto& get(auto const... to_throw)
   {
     return get_impl<T, EXCEPTION_TYPE>()(*this, to_throw...);
   }
 
-  void emplace(auto&& in) { m_value = in; }
+  constexpr void emplace(auto&& in) { m_value = in; }
 
-  std::string_view get_internal_type_name() const
+  constexpr std::string_view get_internal_type_name() const
   {
 
     return std::visit(typename_visitor(), m_value);
   }
 
 private:
-  std::variant<string, number, array> m_value;
+  value() = default;
+
+  std::variant<std::monostate, string, number, array> m_value;
 };
 
 class scl_search_exception : public std::exception

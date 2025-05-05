@@ -46,7 +46,7 @@ CSRC=
 
 PUBLIC_HEADERS=src/scl.hh
 
-CXXFLAGS=-MMD @compile_flags.txt 
+CXXFLAGS=-MMD @compile_flags.txt  -ftemplate-backtrace-limit=0
 CFLAGS=-MMD @ccompile_flags.txt 
 
 ifdef RELEASE
