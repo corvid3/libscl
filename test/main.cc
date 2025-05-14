@@ -1,16 +1,18 @@
 #include "../src/scl.hh"
 #include <format>
 #include <iostream>
+#include <regex>
 #include <tuple>
 
 auto const file_contents = R"(
 # test
 
 [test]
-bag = { 1 2 3 }
-
-[test.inner]
-agga = "inbob"
+foogle = "ag"
+spring = "adrarstr"
+toog = t
+foogble = "ag"
+str = "str"
 
 )";
 
@@ -26,29 +28,21 @@ struct inner_t
 
 struct test
 {
-  std::tuple<scl::number, scl::number, scl::number> c;
+  std::string x;
 
   inner_t inner;
 
-  using scl_fields = scl::field_descriptor<scl::field<&test::c, "bag"_f>>;
-  using scl_recurse =
-    scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
+  using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
+  // using scl_recurse =
+  //   scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
 };
 
 int
 main()
 {
   scl::scl_file scl(file_contents);
-
   test t;
   scl::deserialize(t, scl, "test");
 
-  std::cout << std::format(
-    "{} {} {}", std::get<0>(t.c), std::get<1>(t.c), std::get<2>(t.c));
-
-  scl::value x(std::make_tuple(1., 3, "hello"));
-  std::tuple<scl::number, scl::number, scl::string> m = x;
-
-  scl::scl_file a;
-  scl::serialize(t, a, "test");
+  std::cout << std::format("{}\n", t.x);
 }

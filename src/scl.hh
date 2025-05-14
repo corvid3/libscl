@@ -5,9 +5,12 @@
 #include <concepts>
 #include <exception>
 #include <format>
+#include <iostream>
 #include <iterator>
 #include <list>
 #include <map>
+#include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -23,21 +26,39 @@ class value;
 using string = std::string;
 using number = double;
 using array = std::vector<value>;
+using boolean = bool;
 
 using table = std::map<std::string, value, std::less<>>;
 using table_array = std::list<table>;
 
 struct typename_visitor
 {
-  std::string_view operator()(std::monostate const&) { return "uninitialized"; }
-  std::string_view operator()(string const&) { return "string"; }
-  std::string_view operator()(number const&) { return "number"; }
-  std::string_view operator()(array const&) { return "array"; }
+  constexpr std::string_view operator()(std::monostate const&)
+  {
+    return "uninitialized";
+  }
+
+  constexpr std::string_view operator()(string const&) { return "string"; }
+  constexpr std::string_view operator()(number const&) { return "number"; }
+  constexpr std::string_view operator()(array const&) { return "array"; }
+  constexpr std::string_view operator()(bool const&) { return "boolean"; }
 
   template<typename... T>
-  std::string_view operator()(std::tuple<T...>)
+  constexpr std::string_view operator()(std::tuple<T...>)
   {
-    return "constrained array";
+    static std::string what;
+    static std::once_flag call_once;
+    std::call_once(
+      call_once,
+      [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+        std::stringstream gen;
+        gen << std::format("constrained array/tuple: len {} | ", sizeof...(T));
+        ((gen << std::format("arg {}: {}, ", Is, typename_visitor()(T()))),
+         ...);
+        what = gen.str();
+      },
+      std::index_sequence_for<T...>());
+    return what;
   }
 };
 
@@ -46,11 +67,34 @@ struct typename_visitor
 class wrong_size_exception : public std::runtime_error
 {
 public:
-  wrong_size_exception(auto const expected_size, auto const found_size)
+  constexpr wrong_size_exception(auto const expected_size,
+                                 auto const found_size)
     : std::runtime_error(std::format("failed to convert a scl array to a "
                                      "tuple, expected {} but found size of {}",
                                      expected_size,
                                      found_size)) {};
+};
+
+// defer the runtime error report definition
+// instead of constantly generating them
+// every time this cast is called
+template<typename... Ts>
+struct tuple_cast_exception : std::runtime_error
+{
+  template<std::size_t... Is>
+  static std::string generate(std::index_sequence<Is...>)
+  {
+    std::stringstream s;
+
+    s << "error when attempting to cast a scl::value to a tuple: ";
+    s << std::format("expected array size: {} | ", sizeof...(Ts));
+    ((s << std::format("arg {}: {}, ", Is, typename_visitor()(Ts()))), ...);
+
+    return s.str();
+  };
+
+  tuple_cast_exception()
+    : std::runtime_error(generate(std::index_sequence_for<Ts...>())) {};
 };
 
 class value
@@ -58,48 +102,22 @@ class value
   template<typename T, typename EXCEPTION_TYPE>
   struct get_impl;
 
-  // for everything but tuple types
-  template<typename T, typename EXCEPTION_TYPE>
-  struct get_impl
-  {
-    auto operator()(value const& v, auto const... to_throw) const
-    {
-      if (std::holds_alternative<T>(v.m_value))
-        return std::get<T>(v.m_value);
-      else
-        throw EXCEPTION_TYPE(to_throw...);
-
-      std::unreachable();
-    }
-
-    auto& operator()(value const& v, auto const... to_throw)
-    {
-      if (std::holds_alternative<T>(v.m_value))
-        return std::get<T>(v.m_value);
-      else
-        throw EXCEPTION_TYPE(to_throw...);
-
-      std::unreachable();
-    }
-  };
-
   // for tuple types
   template<typename... T, typename EXCEPTION_TYPE>
   struct get_impl<std::tuple<T...>, EXCEPTION_TYPE>
   {
-
     template<std::size_t... I>
-    void handle(auto const& arr,
-                std::tuple<T...>& tup,
-                std::index_sequence<I...>,
-                auto const... to_throw) const
+    constexpr void handle(auto const& arr,
+                          std::tuple<T...>& tup,
+                          std::index_sequence<I...>,
+                          auto const... to_throw) const
     {
       ((std::get<I>(tup) =
           arr.at(I).template get<T, EXCEPTION_TYPE>(to_throw...)),
        ...);
     }
 
-    auto operator()(value const& v, auto const... to_throw) const
+    constexpr auto operator()(value const& v, auto const... to_throw) const
     {
       constexpr auto expected_size = sizeof...(T);
 
@@ -122,6 +140,31 @@ class value
     }
   };
 
+  // for everything but tuple types
+  template<typename T, typename EXCEPTION_TYPE>
+  struct get_impl
+  {
+    constexpr auto operator()(value const& v, auto const... to_throw) const
+    {
+      if (std::holds_alternative<T>(v.m_value))
+        return std::get<T>(v.m_value);
+      else
+        throw EXCEPTION_TYPE(to_throw...);
+
+      std::unreachable();
+    }
+
+    constexpr auto& operator()(value const& v, auto const... to_throw)
+    {
+      if (std::holds_alternative<T>(v.m_value))
+        return std::get<T>(v.m_value);
+      else
+        throw EXCEPTION_TYPE(to_throw...);
+
+      std::unreachable();
+    }
+  };
+
 public:
   struct init_empty_m
   {};
@@ -132,13 +175,15 @@ public:
     : m_value(std::string(str)) {};
   constexpr value(std::convertible_to<double> auto const num)
     : m_value(double(num)) {};
+  constexpr value(bool const b)
+    : m_value(b) {};
   constexpr value(array&& a)
     : m_value(a) {};
 
   template<typename... Ts>
   constexpr value(std::tuple<Ts...> const& data)
   {
-    std::vector<value> arr;
+    array arr;
     std::apply(
       [&](Ts const&... v) {
         (arr.push_back(value(v)), ...);
@@ -160,7 +205,8 @@ public:
   template<typename... Ts>
   constexpr operator std::tuple<Ts...>() const
   {
-    return this->get<std::tuple<Ts...>>("expected array when casting to tuple");
+
+    return this->get<std::tuple<Ts...>, tuple_cast_exception<Ts...>>();
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
@@ -186,7 +232,7 @@ public:
 private:
   value() = default;
 
-  std::variant<std::monostate, string, number, array> m_value;
+  std::variant<std::monostate, string, number, array, bool> m_value;
 };
 
 class scl_search_exception : public std::exception

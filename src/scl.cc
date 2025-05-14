@@ -1,6 +1,9 @@
 #include <charconv>
 #include <lexible.hh>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "scl.hh"
 
@@ -8,6 +11,8 @@
 
 enum class TokenType
 {
+  LEXIBLE_EOF,
+
   WhitespaceSkip,
 
   TableDecl,
@@ -20,7 +25,43 @@ enum class TokenType
 
   ListStart,
   ListEnd,
+
+  TrueLiteral,
+  FalseLiteral,
 };
+
+constexpr std::string_view
+token_name(TokenType t)
+{
+
+  switch (t) {
+    case TokenType::WhitespaceSkip:
+      return "WhitespaceSkip";
+    case TokenType::TableDecl:
+      return "TableDecl";
+    case TokenType::TableArrayDecl:
+      return "TableArrayDecl";
+    case TokenType::Key:
+      return "Key";
+    case TokenType::Number:
+      return "Number";
+    case TokenType::String:
+      return "String";
+    case TokenType::Equals:
+      return "Equals";
+    case TokenType::ListStart:
+      return "ListStart";
+    case TokenType::ListEnd:
+      return "ListEnd";
+    case TokenType::TrueLiteral:
+      return "TrueLiteral";
+    case TokenType::FalseLiteral:
+      return "FalseLiteral";
+    case TokenType::LEXIBLE_EOF:
+      return "EOF";
+  }
+  std::unreachable();
+}
 
 namespace morphemes {
 using namespace std::string_view_literals;
@@ -37,6 +78,8 @@ constexpr auto string_morpheme_regex = "\".*\""sv;
 constexpr auto equals_morpheme_regex = "="sv;
 constexpr auto list_start_morpheme_regex = "\\{"sv;
 constexpr auto list_end_morpheme_regex = "\\}"sv;
+constexpr auto true_morpheme_regex = "true"sv;
+constexpr auto false_morpheme_regex = "false"sv;
 
 using skip_morpheme =
   lexible::morpheme<skip_morpheme_regex, TokenType::WhitespaceSkip, 1000>;
@@ -63,6 +106,11 @@ using list_start_morpheme =
 using list_end_morpheme =
   lexible::morpheme<list_end_morpheme_regex, TokenType::ListEnd, 0>;
 
+using true_morpheme =
+  lexible::morpheme<true_morpheme_regex, TokenType::TrueLiteral, 1, true>;
+using false_morpheme =
+  lexible::morpheme<false_morpheme_regex, TokenType::FalseLiteral, 1, true>;
+
 };
 
 using lexer = lexible::lexer<TokenType,
@@ -74,7 +122,10 @@ using lexer = lexible::lexer<TokenType,
                              morphemes::string_morpheme,
                              morphemes::equals_morpheme,
                              morphemes::list_start_morpheme,
-                             morphemes::list_end_morpheme>;
+                             morphemes::list_end_morpheme
+                             // morphemes::true_morpheme,
+                             // morphemes::false_morpheme
+                             >;
 
 struct State
 {
@@ -86,11 +137,15 @@ using pctx = lexible::ParsingContext<lexer, State>;
 
 struct value_parse;
 
+// failable function
 struct array_parse
   : pctx::AndThen<pctx::MorphemeParser<TokenType::ListStart>,
                   pctx::Repeat<value_parse, false>,
                   pctx::MorphemeParser<TokenType::ListEnd>>
 {
+  static constexpr size_t CUT_AT = 1;
+  constexpr static std::string_view CUT_ERROR = "when trying to parse an array";
+
   scl::value operator()(State&, auto tup)
   {
     auto [_0, list, _2] = tup;
@@ -101,7 +156,9 @@ struct array_parse
 struct value_parse
   : pctx::Any<pctx::MorphemeParser<TokenType::Number>,
               pctx::MorphemeParser<TokenType::String>,
-              array_parse>
+              array_parse,
+              pctx::MorphemeParser<TokenType::TrueLiteral>,
+              pctx::MorphemeParser<TokenType::FalseLiteral>>
 {
   // number parser
   scl::value operator()(State&, std::string_view in, pctx::placeholder_t<0>)
@@ -123,15 +180,39 @@ struct value_parse
   {
     return in;
   }
+
+  scl::value operator()(State&, std::string_view, pctx::placeholder_t<3>)
+  {
+    return scl::value(true);
+  }
+
+  scl::value operator()(State&, std::string_view, pctx::placeholder_t<4>)
+  {
+    return scl::value(false);
+  }
+
+  std::string err(State&)
+  {
+    printf("erroring\n");
+    return "hmm";
+  }
 };
 
 using key_value = std::pair<std::string, scl::value>;
 
 struct key_value_parse
-  : pctx::AndThen<pctx::MorphemeParser<TokenType::Key>,
-                  pctx::MorphemeParser<TokenType::Equals>,
-                  value_parse>
+  : pctx::AndThen<
+      pctx::MorphemeParser<TokenType::Key,
+                           "expected key at start of key-value pair">,
+      pctx::MorphemeParser<
+        TokenType::Equals,
+        "expected equals after identifier in key-value pair">,
+      value_parse>
 {
+  // cut after starting to parse
+  constexpr static size_t CUT_AT = 0;
+  constexpr static std::string_view CUT_ERROR = "when parsing key-value pair";
+
   key_value operator()(State&, auto tup)
   {
     auto const [name, _0, value] = tup;
@@ -147,6 +228,10 @@ using table_array_pair = std::pair<std::string, scl::table_array>;
 struct table_parse
   : pctx::AndThen<pctx::MorphemeParser<TokenType::TableDecl>, table_parse_inner>
 {
+  // don't cut, never going to throw a cut error
+  constexpr static size_t CUT_AT = 999;
+  constexpr static std::string_view CUT_ERROR = "";
+
   std::pair<std::string, scl::table> operator()(State&, auto in)
   {
     auto const& [table_name, values] = in;
@@ -166,6 +251,10 @@ struct table_array_parse
   : pctx::AndThen<pctx::MorphemeParser<TokenType::TableArrayDecl>,
                   table_parse_inner>
 {
+  // don't cut, never going to throw a cut error
+  constexpr static size_t CUT_AT = 999;
+  constexpr static std::string_view CUT_ERROR = "";
+
   std::pair<std::string, scl::table> operator()(State&, auto in)
   {
     auto const& [table_name, values] = in;
@@ -184,7 +273,7 @@ struct table_array_parse
 struct toplevel_parse : pctx::Any<table_parse, table_array_parse>
 {
   // TODO: convert these to rvalues?
-  pctx::empty_t operator()(State& s, table_pair tbl, pctx::placeholder_t<0>)
+  lexible::empty_t operator()(State& s, table_pair tbl, pctx::placeholder_t<0>)
   {
     if (s.m_tables.contains(tbl.first))
       throw std::runtime_error(
@@ -199,7 +288,7 @@ struct toplevel_parse : pctx::Any<table_parse, table_array_parse>
     return {};
   }
 
-  pctx::empty_t operator()(State& s, table_pair tbl, pctx::placeholder_t<1>)
+  lexible::empty_t operator()(State& s, table_pair tbl, pctx::placeholder_t<1>)
   {
     if (s.m_tables.contains(tbl.first))
       throw std::runtime_error(
@@ -216,7 +305,9 @@ struct toplevel_parse : pctx::Any<table_parse, table_array_parse>
   }
 };
 
-using parser = pctx::Parser<pctx::Repeat<toplevel_parse, false>>;
+// expect a full parse with EOF at the end
+using parser =
+  pctx::Engine<pctx::ExpectEOF<pctx::Repeat<toplevel_parse, false>>>;
 
 namespace scl {
 
@@ -226,7 +317,8 @@ scl_file::scl_file(std::string_view in)
   auto out = parser(in).parse(s);
 
   if (not out)
-    throw std::runtime_error("failed to parse scl file");
+    throw std::runtime_error(
+      std::format("failed to parse scl file, err:\n{}\n", out.error().what()));
 
   m_tables = std::move(s.m_tables);
   m_tableArrays = std::move(s.m_tableArrays);
