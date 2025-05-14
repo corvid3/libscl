@@ -10,6 +10,10 @@ auto const file_contents = R"(
 [test]
 foogle = {1 2 3 4}
 
+[inner]
+agga = "string"
+noob = false
+
 )";
 
 using scl::operator""_f;
@@ -17,9 +21,10 @@ using scl::operator""_f;
 struct inner_t
 {
   scl::string agga;
+  bool b;
 
-  using scl_fields =
-    scl::field_descriptor<scl::field<&inner_t::agga, "agga"_f>>;
+  using scl_fields = scl::field_descriptor<scl::field<&inner_t::agga, "agga"_f>,
+                                           scl::field<&inner_t::b, "noob">>;
 };
 
 struct test
@@ -45,6 +50,8 @@ main()
 
   // for (auto const& i : t.x)
   // std::cout << std::format("{}\n", i);
+
+  std::cout << std::format("{}\n", t.inner.b);
 
   scl::serialize(t, scl);
 }

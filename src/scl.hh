@@ -331,7 +331,7 @@ public:
   scl_search_exception(std::string_view name)
     : name(name)
   {
-    m_what = std::format("searching for {}, couldn't find it", name);
+    m_what = std::format("unable to find table/array <{}> in scl file", name);
   }
 
   // what name one is looking for
@@ -486,7 +486,7 @@ public:
   deserialize_table_error(std::string_view table_name)
     : std::runtime_error(
         std::format("expected a table of name <{}> when deserializing",
-                    m_tableName))
+                    table_name))
     , m_tableName(table_name) {};
 
   std::string m_tableName;
@@ -520,7 +520,7 @@ public:
     : std::runtime_error(
         std::format("failed to get table value by name of <{}>, expected "
                     "<{}> but found <{}>"
-                    ", in table {}",
+                    ", in table <{}>",
                     name,
                     expected_type_name,
                     found_type_name,
@@ -680,7 +680,8 @@ class _deser_impl
     using recurse_descriptor = T::scl_recurse;
     using recurses = recurse_descriptor::fields;
 
-    std::apply([&]<typename R>(R) { deserialize(into.*R::ptr, file, R::name); },
+    std::apply([&]<typename... R>(
+                 R...) { (deserialize(into.*R::ptr, file, R::name), ...); },
                recurses());
   }
 
@@ -800,7 +801,8 @@ class _ser_impl
     using recurse_descriptor = T::scl_recurse;
     using recurses = recurse_descriptor::fields;
 
-    std::apply([&]<typename R>(R) { serialize(into.*R::ptr, file, R::name); },
+    std::apply([&]<typename... R>(
+                 R...) { (serialize(into.*R::ptr, file, R::name), ...); },
                recurses());
   }
 

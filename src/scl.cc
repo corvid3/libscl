@@ -122,10 +122,9 @@ using lexer = lexible::lexer<TokenType,
                              morphemes::string_morpheme,
                              morphemes::equals_morpheme,
                              morphemes::list_start_morpheme,
-                             morphemes::list_end_morpheme
-                             // morphemes::true_morpheme,
-                             // morphemes::false_morpheme
-                             >;
+                             morphemes::list_end_morpheme,
+                             morphemes::true_morpheme,
+                             morphemes::false_morpheme>;
 
 struct State
 {
