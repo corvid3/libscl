@@ -31,6 +31,10 @@ using boolean = bool;
 using table = std::map<std::string, value, std::less<>>;
 using table_array = std::list<table>;
 
+template<typename T>
+concept numeric =
+  requires { requires std::integral<T> or std::floating_point<T>; };
+
 struct typename_visitor
 {
   constexpr std::string_view operator()(std::monostate const&)
@@ -39,7 +43,7 @@ struct typename_visitor
   }
 
   constexpr std::string_view operator()(string const&) { return "string"; }
-  constexpr std::string_view operator()(number const&) { return "number"; }
+  constexpr std::string_view operator()(numeric auto const) { return "number"; }
   constexpr std::string_view operator()(array const&) { return "array"; }
   constexpr std::string_view operator()(bool const&) { return "boolean"; }
 
@@ -443,6 +447,19 @@ public:
   std::string m_fieldName, m_tableName, m_expectedTypename, m_foundTypename;
 };
 
+class _type_consolidator
+{
+  friend class _deser_impl;
+  friend class _ser_impl;
+
+  static scl::number consol(numeric auto const);
+  static scl::string consol(std::same_as<scl::string> auto const);
+  static scl::boolean consol(bool const);
+
+  template<typename T>
+  using get = decltype(consol(std::declval<T>()));
+};
+
 // implementation details for class deserialization
 class _deser_impl
 {
@@ -458,6 +475,7 @@ class _deser_impl
             auto constexpr field_ptr = FIELD::ptr;
             using field_type =
               member_pointer_destructure<decltype(field_ptr)>::value_type;
+            using grab_type = _type_consolidator::get<field_type>;
             auto constexpr field_name = FIELD::name;
             auto constexpr& field_default_value = FIELD::default_value;
 
@@ -472,13 +490,13 @@ class _deser_impl
             } else {
               // TODO: give better type error reporting by giving the name of
               // the type
-              into.*field_ptr =
+              into.*field_ptr = field_type(
                 val->second
-                  .template get<field_type, deserialize_field_type_error>(
+                  .template get<grab_type, deserialize_field_type_error>(
                     field_name,
                     table_name,
                     typename_visitor()(field_type()),
-                    val->second.get_internal_type_name());
+                    val->second.get_internal_type_name()));
             }
           }(FIELDS),
           ...);
@@ -529,6 +547,7 @@ class _deser_impl
   {
   }
 
+  // works on spans (array tables)
   template<typename T, bool err_on_no_table = true>
     requires has_scl_fields_descriptor<typename T::value_type>
   static bool deserialize(std::insert_iterator<T> into_iter,
@@ -639,9 +658,12 @@ class _ser_impl
           [&]<typename FIELD>(FIELD) {
             auto constexpr field_ptr = FIELD::ptr;
             auto constexpr field_name = FIELD::name;
+            using cast_to =
+              _type_consolidator::get<typename member_pointer_destructure<
+                decltype(field_ptr)>::value_type>;
 
             table.insert_or_assign(std::string(field_name),
-                                   value(from.*field_ptr));
+                                   value(cast_to(from.*field_ptr)));
           }(FIELDS),
           ...);
       },

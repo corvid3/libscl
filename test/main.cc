@@ -28,9 +28,7 @@ struct inner_t
 
 struct test
 {
-  std::string x;
-
-  inner_t inner;
+  int x;
 
   using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
   // using scl_recurse =
@@ -43,6 +41,8 @@ main()
   scl::scl_file scl(file_contents);
   test t;
   scl::deserialize(t, scl, "test");
+
+  scl::serialize(t, scl, "test");
 
   std::cout << std::format("{}\n", t.x);
 }
