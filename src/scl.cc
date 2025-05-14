@@ -74,7 +74,7 @@ constexpr auto table_array_decl_regex =
 
 constexpr auto key_morpheme_regex = "[a-zA-Z_]+"sv;
 constexpr auto number_morpheme_regex = "[0-9]+(\\.[0-9]+)?"sv;
-constexpr auto string_morpheme_regex = "\".*\""sv;
+constexpr auto string_morpheme_regex = "\".*?\""sv;
 constexpr auto equals_morpheme_regex = "="sv;
 constexpr auto list_start_morpheme_regex = "\\{"sv;
 constexpr auto list_end_morpheme_regex = "\\}"sv;
@@ -323,4 +323,4 @@ scl_file::scl_file(std::string_view in)
   m_tableArrays = std::move(s.m_tableArrays);
 };
 
-};
+}; // namespace scl

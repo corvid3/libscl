@@ -3,12 +3,13 @@
 #include <iostream>
 #include <regex>
 #include <tuple>
+#include <vector>
 
 auto const file_contents = R"(
 # test
 
 [test]
-foogle = {1 2 3 4}
+foogle = { "a" "b" "c" }
 
 [inner]
 agga = "string"
@@ -19,24 +20,16 @@ noob = false
 using scl::operator""_f;
 
 struct inner_t
-{
-  scl::string agga;
-  bool b;
-
-  using scl_fields = scl::field_descriptor<scl::field<&inner_t::agga, "agga"_f>,
-                                           scl::field<&inner_t::b, "noob">>;
-};
+{};
 
 struct test
 {
-  // std::vector<int> x;
-  // int x;
+  std::vector<std::string> x;
+  using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
 
-  // using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
-
-  inner_t inner;
-  using scl_recurse =
-    scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
+  // inner_t inner;
+  // using scl_recurse =
+  //   scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
 };
 
 int
@@ -46,12 +39,10 @@ main()
   test t;
   // scl::deserialize(t, scl, "test");
 
-  scl::deserialize(t, scl);
+  scl::deserialize(t, scl, "test");
 
-  // for (auto const& i : t.x)
-  // std::cout << std::format("{}\n", i);
+  for (auto const& m : t.x)
+    std::cout << m << std::endl;
 
-  std::cout << std::format("{}\n", t.inner.b);
-
-  scl::serialize(t, scl);
+  scl.serialize();
 }
