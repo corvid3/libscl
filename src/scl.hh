@@ -695,7 +695,7 @@ class _deser_impl
 class _ser_impl
 {
   template<typename recurses>
-  static void internal_serialize_recurse_wrapper(auto& into,
+  static void internal_serialize_recurse_wrapper(auto const& into,
                                                  scl_file& file,
                                                  auto const& table_name)
   {
@@ -719,7 +719,7 @@ class _ser_impl
 
   template<typename T>
     requires has_scl_recurse_descriptor<T>
-  static void inner_serialize_recurse(T& into,
+  static void inner_serialize_recurse(T const& into,
                                       scl_file& file,
                                       auto const& table_name)
   {
@@ -730,12 +730,12 @@ class _ser_impl
 
   template<typename T>
     requires(not has_scl_recurse_descriptor<T>)
-  static void inner_serialize_recurse(T&, scl_file&, auto const&)
+  static void inner_serialize_recurse(T const&, scl_file&, auto const&)
   {
   }
 
   template<typename fields>
-  static void inner_serialize_fields(auto& from, auto& table)
+  static void inner_serialize_fields(auto const& from, auto& table)
   {
     std::apply(
       [&](auto const... FIELDS) {
@@ -779,7 +779,9 @@ class _ser_impl
 
   // replaces table if it already exists in the file
   template<has_scl_fields_descriptor T>
-  static void serialize(T& from, scl_file& file, std::string_view table_name)
+  static void serialize(T const& from,
+                        scl_file& file,
+                        std::string_view table_name)
   {
     using field_descriptor = T::scl_fields;
     using fields = field_descriptor::fields;
@@ -792,7 +794,18 @@ class _ser_impl
     file.insert_table(table_name, std::move(table_));
   };
 
+  template<typename T>
+  static void serialize(T const& into, scl_file& file)
+  {
+    using recurse_descriptor = T::scl_recurse;
+    using recurses = recurse_descriptor::fields;
+
+    std::apply([&]<typename R>(R) { serialize(into.*R::ptr, file, R::name); },
+               recurses());
+  }
+
   friend void serialize(auto const&, scl_file&, std::string_view);
+  friend void serialize(auto const&, scl_file&);
 };
 
 // returns false if table doesn't exist
@@ -815,6 +828,13 @@ void
 serialize(auto const& from, scl_file& into, std::string_view table_name)
 {
   _ser_impl::serialize(from, into, table_name);
+}
+
+// used for "top level" table structures
+void
+serialize(auto const& from, scl_file& into)
+{
+  _ser_impl::serialize(from, into);
 }
 
 };

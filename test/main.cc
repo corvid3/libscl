@@ -46,5 +46,5 @@ main()
   // for (auto const& i : t.x)
   // std::cout << std::format("{}\n", i);
 
-  // scl::serialize(t, scl, "test");
+  scl::serialize(t, scl);
 }
