@@ -53,6 +53,9 @@ class _type_consolidator
   static scl::boolean consol(bool const);
   static scl::array consol(array const);
 
+  template<typename... Ts>
+  static std::tuple<Ts...> consol(std::tuple<Ts...>);
+
   template<typename T>
   static scl::array consol(std::vector<T>);
 
