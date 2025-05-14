@@ -24,12 +24,14 @@ struct inner_t
 
 struct test
 {
-  std::vector<int> x;
+  // std::vector<int> x;
   // int x;
 
-  using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
-  // using scl_recurse =
-  //   scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
+  // using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
+
+  inner_t inner;
+  using scl_recurse =
+    scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
 };
 
 int
@@ -37,10 +39,12 @@ main()
 {
   scl::scl_file scl(file_contents);
   test t;
-  scl::deserialize(t, scl, "test");
+  // scl::deserialize(t, scl, "test");
 
-  for (auto const& i : t.x)
-    std::cout << std::format("{}\n", i);
+  scl::deserialize(t, scl);
 
-  scl::serialize(t, scl, "test");
+  // for (auto const& i : t.x)
+  // std::cout << std::format("{}\n", i);
+
+  // scl::serialize(t, scl, "test");
 }
