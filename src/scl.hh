@@ -25,8 +25,8 @@ class value;
 
 using string = std::string;
 using number = double;
-using array = std::vector<value>;
 using boolean = bool;
+class array;
 
 using table = std::map<std::string, value, std::less<>>;
 using table_array = std::list<table>;
@@ -34,6 +34,41 @@ using table_array = std::list<table>;
 template<typename T>
 concept numeric =
   requires { requires std::integral<T> or std::floating_point<T>; };
+
+class _type_consolidator
+{
+  friend class _deser_impl;
+  friend class _ser_impl;
+  friend class value;
+  friend class array;
+
+  static scl::number consol(numeric auto const);
+  static scl::string consol(std::same_as<scl::string> auto const);
+  static scl::boolean consol(bool const);
+  static scl::array consol(array const);
+
+  template<typename T>
+  static scl::array consol(std::vector<T>);
+
+  template<typename T>
+  using get = decltype(consol(std::declval<T>()));
+};
+
+class array : public std::vector<value>
+{
+  // yes, deriving from a standard library type
+  // so scary!
+  // not attaching anything to it outside of some implicit conversion functions
+  // though
+public:
+  template<typename T>
+  operator std::vector<T>();
+
+  using vector::vector;
+
+  template<typename T>
+  array(std::vector<T> const& from);
+};
 
 struct typename_visitor
 {
@@ -44,8 +79,14 @@ struct typename_visitor
 
   constexpr std::string_view operator()(string const&) { return "string"; }
   constexpr std::string_view operator()(numeric auto const) { return "number"; }
-  constexpr std::string_view operator()(array const&) { return "array"; }
+  // constexpr std::string_view operator()(array const&) { return "array"; }
   constexpr std::string_view operator()(bool const&) { return "boolean"; }
+
+  template<typename T>
+  constexpr std::string_view operator()(std::vector<T> const&)
+  {
+    return "type-set array";
+  }
 
   template<typename... T>
   constexpr std::string_view operator()(std::tuple<T...>)
@@ -173,7 +214,8 @@ public:
   struct init_empty_m
   {};
 
-  constexpr value(init_empty_m) {};
+  constexpr value(init_empty_m)
+    : m_value(std::monostate()) {};
 
   constexpr value(std::string_view const& str)
     : m_value(std::string(str)) {};
@@ -216,13 +258,15 @@ public:
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
   constexpr auto get(auto const... to_throw) const
   {
-    return get_impl<T, EXCEPTION_TYPE>()(*this, to_throw...);
+    using casted_type = _type_consolidator::get<T>;
+    return get_impl<casted_type, EXCEPTION_TYPE>()(*this, to_throw...);
   }
 
   template<typename T, typename EXCEPTION_TYPE = std::runtime_error>
   constexpr auto& get(auto const... to_throw)
   {
-    return get_impl<T, EXCEPTION_TYPE>()(*this, to_throw...);
+    using casted_type = _type_consolidator::get<T>;
+    return get_impl<casted_type, EXCEPTION_TYPE>()(*this, to_throw...);
   }
 
   constexpr void emplace(auto&& in) { m_value = in; }
@@ -233,11 +277,47 @@ public:
     return std::visit(typename_visitor(), m_value);
   }
 
+  template<typename T>
+  constexpr bool holds() const
+  {
+    return std::holds_alternative<T>(m_value);
+  }
+
 private:
   value() = default;
 
   std::variant<std::monostate, string, number, array, bool> m_value;
 };
+
+template<typename EXPECTED>
+class vector_cast_exception final : std::runtime_error
+{
+public:
+  vector_cast_exception(value const& found)
+    : runtime_error(std::format("error when attempting to cast array to a "
+                                "vector, expected <{}> but found <{}>",
+                                typename_visitor()(EXPECTED()),
+                                found.get_internal_type_name())) {};
+};
+
+// alllll the wayy down here...
+template<typename T>
+array::operator std::vector<T>()
+{
+  std::vector<T> out;
+
+  for (auto const& v : *this)
+    out.push_back(v.template get<T, vector_cast_exception<T>>(v));
+
+  return out;
+};
+
+template<typename T>
+array::array(std::vector<T> const& from)
+{
+  for (auto const& v : from)
+    this->push_back(value(v));
+}
 
 class scl_search_exception : public std::exception
 {
@@ -445,19 +525,6 @@ public:
     , m_foundTypename(found_type_name) {};
 
   std::string m_fieldName, m_tableName, m_expectedTypename, m_foundTypename;
-};
-
-class _type_consolidator
-{
-  friend class _deser_impl;
-  friend class _ser_impl;
-
-  static scl::number consol(numeric auto const);
-  static scl::string consol(std::same_as<scl::string> auto const);
-  static scl::boolean consol(bool const);
-
-  template<typename T>
-  using get = decltype(consol(std::declval<T>()));
 };
 
 // implementation details for class deserialization

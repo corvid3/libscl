@@ -149,7 +149,7 @@ struct array_parse
   scl::value operator()(State&, auto tup)
   {
     auto [_0, list, _2] = tup;
-    return (list);
+    return scl::value(scl::array(std::move(list)));
   }
 };
 
@@ -210,7 +210,7 @@ struct key_value_parse
       value_parse>
 {
   // cut after starting to parse
-  constexpr static size_t CUT_AT = 0;
+  constexpr static size_t CUT_AT = 1;
   constexpr static std::string_view CUT_ERROR = "when parsing key-value pair";
 
   key_value operator()(State&, auto tup)
