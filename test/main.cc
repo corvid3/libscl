@@ -1,21 +1,10 @@
 #include "../src/scl.hh"
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <regex>
 #include <tuple>
 #include <vector>
-
-auto const file_contents = R"(
-# test
-
-[test]
-foogle = { "a" "b" "c" }
-
-[inner]
-agga = "string"
-noob = false
-
-)";
 
 using scl::operator""_f;
 
@@ -32,10 +21,24 @@ struct test
   //   scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
 };
 
+std::string
+open_test_file()
+{
+  std::ifstream f("./test/test_file.txt");
+
+  if (f.fail())
+    throw std::runtime_error("unable to get test file");
+
+  std::stringstream ss;
+  ss << f.rdbuf();
+
+  return ss.str();
+}
+
 int
 main()
 {
-  scl::scl_file scl(file_contents);
+  scl::scl_file scl(open_test_file());
   test t;
   // scl::deserialize(t, scl, "test");
 
