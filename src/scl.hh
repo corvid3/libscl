@@ -554,13 +554,22 @@ struct field
     default_value = DEFAULT_VALUE;
 };
 
-template<auto const FIELD_PTR,
-         field_name_literal const NAME,
-         auto const DEFAULT_VALUE,
-         typename T,
+template<typename T,
          enum_deserialization_function<T> const ENUM_DESERIALIZE_FUNCTION,
          enum_serialize_function<T> const ENUM_SERIALIZE_FUNCTION>
+struct enum_field_descriptor
+{
+  constexpr static enum_deserialization_function<T> deserialize_function =
+    ENUM_DESERIALIZE_FUNCTION;
 
+  constexpr static enum_serialize_function<T> serialize_function =
+    ENUM_SERIALIZE_FUNCTION;
+};
+
+template<auto const FIELD_PTR,
+         field_name_literal const NAME,
+         typename ENUM_DESCRIPTOR,
+         auto const DEFAULT_VALUE = std::nullopt>
 struct enum_field
 {
   constexpr static auto ptr = FIELD_PTR;
@@ -568,12 +577,7 @@ struct enum_field
   constexpr static std::optional<
     typename member_pointer_destructure<decltype(FIELD_PTR)>::value_type>
     default_value = DEFAULT_VALUE;
-
-  constexpr static enum_deserialization_function<T> deserialize_function =
-    ENUM_DESERIALIZE_FUNCTION;
-
-  constexpr static enum_serialize_function<T> serialize_function =
-    ENUM_SERIALIZE_FUNCTION;
+  using descriptor = ENUM_DESCRIPTOR;
 };
 
 enum _empty_enum
@@ -672,14 +676,14 @@ struct scl_enum_deserialize_error : public std::runtime_error
 class _deser_impl
 {
 
-  template<typename field_type, typename T>
-    requires is_enum_field<field_type>
+  template<typename FIELD, typename T>
+    requires is_enum_field<FIELD>
   static void apply_conversion(std::string_view table_name,
                                std::string_view key_name,
                                T& into,
                                auto&& from)
   {
-    auto const e = field_type::deserialize_function(from);
+    auto const e = FIELD::descriptor::deserialize_function(from);
 
     if (e.has_value())
       into = *e;
@@ -687,8 +691,8 @@ class _deser_impl
       throw scl_enum_deserialize_error(table_name, key_name, from);
   }
 
-  template<typename field_type, typename T>
-    requires(not is_enum_field<field_type>)
+  template<typename FIELD, typename T>
+    requires(not is_enum_field<FIELD>)
   static void apply_conversion(std::string_view,
                                std::string_view,
                                T& into,
@@ -904,7 +908,7 @@ class _ser_impl
     requires is_enum_field<FIELD>
   static value apply_conversion(auto const& from)
   {
-    return FIELD::serialize_function(from);
+    return FIELD::descriptor::serialize_function(from);
   }
 
   template<typename FIELD, typename T>

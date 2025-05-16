@@ -8,8 +8,6 @@
 #include <utility>
 #include <vector>
 
-using scl::operator""_f;
-
 struct inner_t
 {};
 
@@ -37,15 +35,16 @@ enum_ser(Enum const in)
   std::unreachable();
 }
 
+using enum_descriptor = scl::enum_field_descriptor<Enum, enum_deser, enum_ser>;
+
 struct test
 {
   std::vector<std::string> x;
   Enum e;
 
-  using scl_fields = scl::field_descriptor<
-    scl::field<&test::x, "foogle"_f>,
-    scl::
-      enum_field<&test::e, "enum", std::nullopt, Enum, enum_deser, enum_ser>>;
+  using scl_fields =
+    scl::field_descriptor<scl::field<&test::x, "foogle">,
+                          scl::enum_field<&test::e, "enum", enum_descriptor>>;
 
   // inner_t inner;
   // using scl_recurse =
