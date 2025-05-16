@@ -1,6 +1,7 @@
 # test
 [test]
 foogle = { "fooba\1" "thungus\"" }
+enum = "executable"
 
 [inner]
 agga = "string"

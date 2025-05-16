@@ -11,16 +11,19 @@
 #include <concepts>
 #include <exception>
 #include <format>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <list>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -41,6 +44,9 @@ template<typename T>
 concept numeric =
   requires { requires std::integral<T> or std::floating_point<T>; };
 
+template<typename T>
+concept is_enum = requires { requires std::is_enum_v<T>; };
+
 class _type_consolidator
 {
   friend class _deser_impl;
@@ -52,6 +58,7 @@ class _type_consolidator
   static scl::string consol(std::same_as<scl::string> auto const);
   static scl::boolean consol(bool const);
   static scl::array consol(array const);
+  static scl::string consol(is_enum auto const);
 
   template<typename... Ts>
   static std::tuple<Ts...> consol(std::tuple<Ts...>);
@@ -88,8 +95,9 @@ struct typename_visitor
 
   constexpr std::string_view operator()(string const&) { return "string"; }
   constexpr std::string_view operator()(numeric auto const) { return "number"; }
-  // constexpr std::string_view operator()(array const&) { return "array"; }
+  constexpr std::string_view operator()(array const&) { return "array"; }
   constexpr std::string_view operator()(bool const&) { return "boolean"; }
+  constexpr std::string_view operator()(is_enum auto const) { return "enum"; }
 
   template<typename T>
   constexpr std::string_view operator()(std::vector<T> const&)
@@ -523,6 +531,17 @@ operator"" _f()
   return a;
 };
 
+template<typename T>
+  requires std::is_enum_v<T>
+using enum_deserialization_function = std::optional<T>(*)(std::string_view);
+
+template<typename T>
+  requires std::is_enum_v<T>
+using enum_serialize_function = std::string_view(*)(T);
+
+template<typename T>
+using X = T;
+
 template<auto const FIELD_PTR,
          field_name_literal const NAME,
          auto const DEFAULT_VALUE = std::nullopt>
@@ -533,6 +552,32 @@ struct field
   constexpr static std::optional<
     typename member_pointer_destructure<decltype(FIELD_PTR)>::value_type>
     default_value = DEFAULT_VALUE;
+};
+
+template<auto const FIELD_PTR,
+         field_name_literal const NAME,
+         auto const DEFAULT_VALUE,
+         typename T,
+         enum_deserialization_function<T> const ENUM_DESERIALIZE_FUNCTION,
+         enum_serialize_function<T> const ENUM_SERIALIZE_FUNCTION>
+
+struct enum_field
+{
+  constexpr static auto ptr = FIELD_PTR;
+  constexpr static std::string_view name = NAME.m_str;
+  constexpr static std::optional<
+    typename member_pointer_destructure<decltype(FIELD_PTR)>::value_type>
+    default_value = DEFAULT_VALUE;
+
+  constexpr static enum_deserialization_function<T> deserialize_function =
+    ENUM_DESERIALIZE_FUNCTION;
+
+  constexpr static enum_serialize_function<T> serialize_function =
+    ENUM_SERIALIZE_FUNCTION;
+};
+
+enum _empty_enum
+{
 };
 
 template<typename T>
@@ -594,9 +639,64 @@ public:
   std::string m_fieldName, m_tableName, m_expectedTypename, m_foundTypename;
 };
 
+template<typename field_type>
+concept is_enum_field = requires(field_type F) {
+  { enum_field{ F } } -> std::same_as<field_type>;
+};
+
+// thrown when attempting to deserialize a string into an enum
+// but the string fails the conversion function
+struct scl_enum_deserialize_error : public std::runtime_error
+{
+  scl_enum_deserialize_error(std::string_view table_name,
+                             std::string_view key_name,
+                             std::string_view what)
+    : runtime_error(
+        std::format("unknown enum value when trying to deserialize "
+                    "scl file, in table <{}>, value <{}>, found <{}>",
+                    table_name,
+                    key_name,
+                    what))
+    , table_name(table_name)
+    , key_name(key_name)
+    , what(what)
+  {
+  }
+
+  std::string table_name;
+  std::string key_name;
+  std::string what;
+};
+
 // implementation details for class deserialization
 class _deser_impl
 {
+
+  template<typename field_type, typename T>
+    requires is_enum_field<field_type>
+  static void apply_conversion(std::string_view table_name,
+                               std::string_view key_name,
+                               T& into,
+                               auto&& from)
+  {
+    auto const e = field_type::deserialize_function(from);
+
+    if (e.has_value())
+      into = *e;
+    else
+      throw scl_enum_deserialize_error(table_name, key_name, from);
+  }
+
+  template<typename field_type, typename T>
+    requires(not is_enum_field<field_type>)
+  static void apply_conversion(std::string_view,
+                               std::string_view,
+                               T& into,
+                               auto&& from)
+  {
+    into = T(from);
+  }
+
   template<typename fields>
   static void internal_deserialize_field_unwrapper(auto& into,
                                                    auto& table,
@@ -624,13 +724,17 @@ class _deser_impl
             } else {
               // TODO: give better type error reporting by giving the name of
               // the type
-              into.*field_ptr = field_type(
+
+              auto&& val2 =
                 val->second
                   .template get<grab_type, deserialize_field_type_error>(
                     field_name,
                     table_name,
                     typename_visitor()(field_type()),
-                    val->second.get_internal_type_name()));
+                    val->second.get_internal_type_name());
+
+              apply_conversion<FIELD>(
+                table_name, field_name, into.*field_ptr, std::move(val2));
             }
           }(FIELDS),
           ...);
@@ -796,6 +900,20 @@ class _ser_impl
   {
   }
 
+  template<typename FIELD, typename T>
+    requires is_enum_field<FIELD>
+  static value apply_conversion(auto const& from)
+  {
+    return FIELD::serialize_function(from);
+  }
+
+  template<typename FIELD, typename T>
+    requires(not is_enum_field<FIELD>)
+  static value apply_conversion(auto const& from)
+  {
+    return T(from);
+  }
+
   template<typename fields>
   static void inner_serialize_fields(auto const& from, auto& table)
   {
@@ -809,8 +927,9 @@ class _ser_impl
               _type_consolidator::get<typename member_pointer_destructure<
                 decltype(field_ptr)>::value_type>;
 
-            table.insert_or_assign(std::string(field_name),
-                                   value(cast_to(from.*field_ptr)));
+            table.insert_or_assign(
+              std::string(field_name),
+              value(apply_conversion<FIELD, cast_to>(from.*field_ptr)));
           }(FIELDS),
           ...);
       },

@@ -2,8 +2,10 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using scl::operator""_f;
@@ -11,10 +13,39 @@ using scl::operator""_f;
 struct inner_t
 {};
 
+enum class Enum
+{
+  Executable,
+};
+
+std::optional<Enum>
+enum_deser(std::string_view const in)
+{
+  if (in == "executable")
+    return Enum::Executable;
+  return std::nullopt;
+}
+
+std::string_view
+enum_ser(Enum const in)
+{
+  switch (in) {
+    case Enum::Executable:
+      return "executable";
+  }
+
+  std::unreachable();
+}
+
 struct test
 {
   std::vector<std::string> x;
-  using scl_fields = scl::field_descriptor<scl::field<&test::x, "foogle"_f>>;
+  Enum e;
+
+  using scl_fields = scl::field_descriptor<
+    scl::field<&test::x, "foogle"_f>,
+    scl::
+      enum_field<&test::e, "enum", std::nullopt, Enum, enum_deser, enum_ser>>;
 
   // inner_t inner;
   // using scl_recurse =
@@ -44,8 +75,10 @@ main()
 
   scl::deserialize(t, scl, "test");
 
-  for (auto const& m : t.x)
-    std::cout << m << std::endl;
+  // for (auto const& m : t.x)
+  //   std::cout << m << std::endl;
 
-  scl.serialize();
+  scl::scl_file e;
+  scl::serialize(t, e, "test");
+  std::cout << e.serialize();
 }
