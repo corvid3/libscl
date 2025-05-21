@@ -1,6 +1,5 @@
 #include <charconv>
 #include <lexible.hh>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -132,7 +131,7 @@ struct State
   std::map<std::string, scl::table_array, std::less<>> m_tableArrays;
 };
 
-using pctx = lexible::ParsingContext<lexer, State>;
+using pctx = lexible::ParsingContext<lexer::token, State>;
 
 struct value_parse;
 
@@ -313,7 +312,7 @@ namespace scl {
 scl_file::scl_file(std::string_view in)
 {
   State s;
-  auto out = parser(in).parse(s);
+  auto out = parser(lexer(in).consume_all()).parse(s);
 
   if (not out)
     throw std::runtime_error(
