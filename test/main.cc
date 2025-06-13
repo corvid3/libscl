@@ -41,10 +41,13 @@ struct test
 {
   std::vector<std::string> x;
   Enum e;
+  std::string m;
 
-  using scl_fields =
-    scl::field_descriptor<scl::field<&test::x, "foogle">,
-                          scl::enum_field<&test::e, "enum", enum_descriptor>>;
+  using scl_fields = scl::field_descriptor<
+    // scl::field<&test::x, "foogle">,
+    scl::field<&test::m, "halo">
+    // scl::enum_field<&test::e, "enum", enum_descriptor>
+    >;
 
   // inner_t inner;
   // using scl_recurse =

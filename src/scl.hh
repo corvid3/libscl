@@ -55,7 +55,7 @@ class _type_consolidator
   friend class array;
 
   static scl::number consol(numeric auto const);
-  static scl::string consol(std::same_as<scl::string> auto const);
+  static scl::string consol(std::convertible_to<scl::string> auto const);
   static scl::boolean consol(bool const);
   static scl::array consol(array const);
   static scl::string consol(is_enum auto const);
@@ -544,14 +544,12 @@ using X = T;
 
 template<auto const FIELD_PTR,
          field_name_literal const NAME,
-         auto const DEFAULT_VALUE = std::nullopt>
+         bool const MUST_EXIST = true>
 struct field
 {
   constexpr static auto ptr = FIELD_PTR;
   constexpr static std::string_view name = NAME.m_str;
-  constexpr static std::optional<
-    typename member_pointer_destructure<decltype(FIELD_PTR)>::value_type>
-    default_value = DEFAULT_VALUE;
+  constexpr static bool must_exist = MUST_EXIST;
 };
 
 template<typename T,
@@ -569,14 +567,12 @@ struct enum_field_descriptor
 template<auto const FIELD_PTR,
          field_name_literal const NAME,
          typename ENUM_DESCRIPTOR,
-         auto const DEFAULT_VALUE = std::nullopt>
+         bool const MUST_EXIST = true>
 struct enum_field
 {
   constexpr static auto ptr = FIELD_PTR;
   constexpr static std::string_view name = NAME.m_str;
-  constexpr static std::optional<
-    typename member_pointer_destructure<decltype(FIELD_PTR)>::value_type>
-    default_value = DEFAULT_VALUE;
+  constexpr static bool must_exist = MUST_EXIST;
   using descriptor = ENUM_DESCRIPTOR;
 };
 
@@ -715,16 +711,14 @@ class _deser_impl
               member_pointer_destructure<decltype(field_ptr)>::value_type;
             using grab_type = _type_consolidator::get<field_type>;
             auto constexpr field_name = FIELD::name;
-            auto constexpr& field_default_value = FIELD::default_value;
+            auto constexpr field_must_parse = FIELD::must_exist;
 
             auto&& val = table.find(field_name);
 
             if (val == table.end()) {
-              if (not field_default_value.has_value())
+              if (field_must_parse)
                 throw deserialize_field_error(field_name, table_name);
 
-              // hey we have a default value
-              into.*field_ptr = *field_default_value;
             } else {
               // TODO: give better type error reporting by giving the name of
               // the type
@@ -915,7 +909,7 @@ class _ser_impl
     requires(not is_enum_field<FIELD>)
   static value apply_conversion(auto const& from)
   {
-    return T(from);
+    return value(T(from));
   }
 
   template<typename fields>
