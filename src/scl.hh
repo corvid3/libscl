@@ -67,6 +67,9 @@ class _type_consolidator
   static scl::array consol(std::vector<T>);
 
   template<typename T>
+  static decltype(consol(std::declval<T>())) consol(std::optional<T>);
+
+  template<typename T>
   using get = decltype(consol(std::declval<T>()));
 };
 
@@ -98,6 +101,12 @@ struct typename_visitor
   constexpr std::string_view operator()(array const&) { return "array"; }
   constexpr std::string_view operator()(bool const&) { return "boolean"; }
   constexpr std::string_view operator()(is_enum auto const) { return "enum"; }
+
+  template<typename T>
+  constexpr std::string_view operator()(std::optional<T> const&)
+  {
+    return "optional";
+  }
 
   template<typename T>
   constexpr std::string_view operator()(std::vector<T> const&)
@@ -392,15 +401,15 @@ private:
   std::string m_what;
 };
 
-class scl_file
+class file
 {
 public:
   friend struct State;
 
-  scl_file() = default;
+  file() = default;
 
   // parses a scl_file
-  scl_file(std::string_view);
+  file(std::string_view);
 
   bool table_exists(std::string_view name) const
   {
@@ -506,22 +515,20 @@ concept is_member_pointer_of = requires(T t) {
   requires std::same_as<typename member_pointer_destructure<T>::class_type, OF>;
 };
 
-template<typename... Ts>
-struct field_descriptor
-{
-  using fields = std::tuple<Ts...>;
-};
-
-template<auto N>
+template<std::size_t N>
 struct field_name_literal
 {
   constexpr field_name_literal(char const (&str)[N])
   {
-    std::copy(str, str + N, m_str);
+    std::copy(str, str + N - 1, m_str.begin());
   }
 
-  constexpr operator std::string_view() { return m_str; }
-  char m_str[N]{};
+  constexpr operator std::string_view() const
+  {
+    return { m_str.begin(), m_str.end() };
+  }
+
+  std::array<char, N - 1> m_str{};
 };
 
 template<field_name_literal a>
@@ -548,7 +555,7 @@ template<auto const FIELD_PTR,
 struct field
 {
   constexpr static auto ptr = FIELD_PTR;
-  constexpr static std::string_view name = NAME.m_str;
+  constexpr static std::string_view name = NAME;
   constexpr static bool must_exist = MUST_EXIST;
 };
 
@@ -571,7 +578,7 @@ template<auto const FIELD_PTR,
 struct enum_field
 {
   constexpr static auto ptr = FIELD_PTR;
-  constexpr static std::string_view name = NAME.m_str;
+  constexpr static std::string_view name = NAME;
   constexpr static bool must_exist = MUST_EXIST;
   using descriptor = ENUM_DESCRIPTOR;
 };
@@ -742,7 +749,7 @@ class _deser_impl
 
   template<typename recurses>
   static void internal_deserialize_recurse_wrapper(auto& into,
-                                                   scl_file const& file,
+                                                   file const& file,
                                                    auto const& table_name)
   {
     std::apply(
@@ -753,13 +760,14 @@ class _deser_impl
             // using field_type =
             //   member_pointer_destructure<decltype(field_ptr)>::value_type;
             auto field_name = std::format("{}.{}", table_name, RECURSE::name);
-            auto constexpr& field_default_value = RECURSE::default_value;
+            auto constexpr must_exist = RECURSE::must_exist;
+
+            std::cout << std::format("wtf: {}\n", must_exist);
 
             auto& inner = into.*field_ptr;
 
-            if (not deserialize(inner, file, field_name))
-              if (field_default_value)
-                inner = *field_default_value;
+            deserialize<std::decay_t<decltype(inner)>, false>(
+              inner, file, field_name);
           }(RECURSES),
           ...);
       },
@@ -769,7 +777,7 @@ class _deser_impl
   template<typename T>
     requires has_scl_recurse_descriptor<T>
   static void inner_deserialize_recurse(T& into,
-                                        scl_file const& file,
+                                        file const& file,
                                         auto const& table_name)
   {
     using recurse_descriptor = T::scl_recurse;
@@ -779,7 +787,7 @@ class _deser_impl
 
   template<typename T>
     requires(not has_scl_recurse_descriptor<T>)
-  static void inner_deserialize_recurse(auto&, scl_file const&, auto const&)
+  static void inner_deserialize_recurse(auto&, file const&, auto const&)
   {
   }
 
@@ -787,12 +795,11 @@ class _deser_impl
   template<typename T, bool err_on_no_table = true>
     requires has_scl_fields_descriptor<typename T::value_type>
   static bool deserialize(std::insert_iterator<T> into_iter,
-                          scl_file const& file,
+                          file const& file,
                           std::string_view table_name)
   {
     using deser_type = T::value_type;
-    using field_descriptor = deser_type::scl_fields;
-    using fields = field_descriptor::fields;
+    using fields = deser_type::scl_fields;
 
     if (not file.array_table_exists(table_name)) {
       if (not err_on_no_table)
@@ -816,17 +823,16 @@ class _deser_impl
   // returns false if table doesn't exist
   template<has_scl_fields_descriptor T, bool err_on_no_table = true>
   static bool deserialize(T& into,
-                          scl_file const& file,
+                          file const& file,
                           std::string_view table_name)
   {
-    using field_descriptor = T::scl_fields;
-    using fields = field_descriptor::fields;
+    using fields = T::scl_fields;
 
     if (not file.table_exists(table_name)) {
-      if (not err_on_no_table)
-        return false;
-      else
+      if (err_on_no_table)
         throw deserialize_table_error(table_name);
+      else
+        return false;
     }
 
     auto const& table = file.get_table(table_name);
@@ -838,21 +844,25 @@ class _deser_impl
   }
 
   template<typename T>
-  static void deserialize(T& into, scl_file const& file)
+  static void deserialize(T& into, file const& file)
   {
-    using recurse_descriptor = T::scl_recurse;
-    using recurses = recurse_descriptor::fields;
+    using recurses = T::scl_recurse;
 
-    std::apply([&]<typename... R>(
-                 R...) { (deserialize(into.*R::ptr, file, R::name), ...); },
-               recurses());
+    std::apply(
+      [&]<typename... R>(R...) {
+        (deserialize<
+           typename member_pointer_destructure<decltype(R::ptr)>::value_type,
+           R::must_exist>(into.*R::ptr, file, R::name),
+         ...);
+      },
+      recurses());
   }
 
   friend bool deserialize(auto&,
-                          scl_file const&,
+                          file const&,
                           std::convertible_to<std::string_view> auto);
 
-  friend void deserialize(auto&, scl_file const&);
+  friend void deserialize(auto&, file const&);
 };
 
 // implementation details for the serialization interface
@@ -860,7 +870,7 @@ class _ser_impl
 {
   template<typename recurses>
   static void internal_serialize_recurse_wrapper(auto const& into,
-                                                 scl_file& file,
+                                                 file& file,
                                                  auto const& table_name)
   {
     std::apply(
@@ -884,7 +894,7 @@ class _ser_impl
   template<typename T>
     requires has_scl_recurse_descriptor<T>
   static void inner_serialize_recurse(T const& into,
-                                      scl_file& file,
+                                      file& file,
                                       auto const& table_name)
   {
     using recurse_descriptor = T::scl_recurse;
@@ -894,7 +904,7 @@ class _ser_impl
 
   template<typename T>
     requires(not has_scl_recurse_descriptor<T>)
-  static void inner_serialize_recurse(T const&, scl_file&, auto const&)
+  static void inner_serialize_recurse(T const&, file&, auto const&)
   {
   }
 
@@ -912,6 +922,25 @@ class _ser_impl
     return value(T(from));
   }
 
+  template<typename FIELD, typename cast_to, typename read_type>
+  static void optional_jank(auto& table,
+                            std::string_view field_name,
+                            std::optional<read_type> const& field)
+  {
+    if (field)
+      table.insert_or_assign(std::string(field_name),
+                             value(apply_conversion<FIELD, cast_to>(*field)));
+  }
+
+  template<typename FIELD, typename cast_to, typename read_type>
+  static void optional_jank(auto& table,
+                            std::string_view field_name,
+                            read_type const& field)
+  {
+    table.insert_or_assign(std::string(field_name),
+                           value(apply_conversion<FIELD, cast_to>(field)));
+  }
+
   template<typename fields>
   static void inner_serialize_fields(auto const& from, auto& table)
   {
@@ -925,9 +954,7 @@ class _ser_impl
               _type_consolidator::get<typename member_pointer_destructure<
                 decltype(field_ptr)>::value_type>;
 
-            table.insert_or_assign(
-              std::string(field_name),
-              value(apply_conversion<FIELD, cast_to>(from.*field_ptr)));
+            optional_jank<FIELD, cast_to>(table, field_name, from.*field_ptr);
           }(FIELDS),
           ...);
       },
@@ -936,7 +963,7 @@ class _ser_impl
 
   template<has_scl_fields_descriptor T>
   static void serialize(std::convertible_to<std::span<T const>> auto from,
-                        scl_file& file,
+                        file& file,
                         std::string_view table_name)
   {
     using field_descriptor = T::scl_fields;
@@ -958,12 +985,9 @@ class _ser_impl
 
   // replaces table if it already exists in the file
   template<has_scl_fields_descriptor T>
-  static void serialize(T const& from,
-                        scl_file& file,
-                        std::string_view table_name)
+  static void serialize(T const& from, file& file, std::string_view table_name)
   {
-    using field_descriptor = T::scl_fields;
-    using fields = field_descriptor::fields;
+    using fields = T::scl_fields;
 
     table table_;
 
@@ -974,24 +998,23 @@ class _ser_impl
   };
 
   template<typename T>
-  static void serialize(T const& into, scl_file& file)
+  static void serialize(T const& into, file& file)
   {
-    using recurse_descriptor = T::scl_recurse;
-    using recurses = recurse_descriptor::fields;
+    using recurses = T::scl_recurse;
 
     std::apply([&]<typename... R>(
                  R...) { (serialize(into.*R::ptr, file, R::name), ...); },
                recurses());
   }
 
-  friend void serialize(auto const&, scl_file&, std::string_view);
-  friend void serialize(auto const&, scl_file&);
+  friend void serialize(auto const&, file&, std::string_view);
+  friend void serialize(auto const&, file&);
 };
 
 // returns false if table doesn't exist
 bool
 deserialize(auto& into,
-            scl_file const& file,
+            file const& file,
             std::convertible_to<std::string_view> auto table_name)
 {
   return _deser_impl::deserialize(into, file, table_name);
@@ -999,20 +1022,20 @@ deserialize(auto& into,
 
 // used for "top level" table structures
 void
-deserialize(auto& into, scl_file const& file)
+deserialize(auto& into, file const& file)
 {
   _deser_impl::deserialize(into, file);
 }
 
 void
-serialize(auto const& from, scl_file& into, std::string_view table_name)
+serialize(auto const& from, file& into, std::string_view table_name)
 {
   _ser_impl::serialize(from, into, table_name);
 }
 
 // used for "top level" table structures
 void
-serialize(auto const& from, scl_file& into)
+serialize(auto const& from, file& into)
 {
   _ser_impl::serialize(from, into);
 }

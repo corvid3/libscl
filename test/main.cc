@@ -41,9 +41,9 @@ struct test
 {
   std::vector<std::string> x;
   Enum e;
-  std::string m;
+  std::optional<std::string> m;
 
-  using scl_fields = scl::field_descriptor<
+  using scl_fields = std::tuple<
     // scl::field<&test::x, "foogle">,
     scl::field<&test::m, "halo">
     // scl::enum_field<&test::e, "enum", enum_descriptor>
@@ -71,7 +71,7 @@ open_test_file()
 int
 main()
 {
-  scl::scl_file scl(open_test_file());
+  scl::file scl(open_test_file());
   test t;
   // scl::deserialize(t, scl, "test");
 
@@ -80,7 +80,7 @@ main()
   // for (auto const& m : t.x)
   //   std::cout << m << std::endl;
 
-  scl::scl_file e;
+  scl::file e;
   scl::serialize(t, e, "test");
   std::cout << e.serialize();
 }

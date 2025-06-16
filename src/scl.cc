@@ -309,7 +309,7 @@ using parser =
 
 namespace scl {
 
-scl_file::scl_file(std::string_view in)
+file::file(std::string_view in)
 {
   State s;
   auto out = parser(lexer(in).consume_all()).parse(s);
