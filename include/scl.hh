@@ -538,7 +538,7 @@ struct field_name_literal
 
 template<field_name_literal a>
 constexpr auto
-operator"" _f()
+operator""_f()
 {
   return a;
 };
