@@ -494,6 +494,11 @@ private:
 };
 
 template<typename T>
+concept is_vec = requires(T t) {
+  { std::vector{ t } } -> std::same_as<T>;
+};
+
+template<typename T>
 struct member_pointer_destructure;
 
 template<typename CLASS, typename X>
@@ -761,13 +766,19 @@ class _deser_impl
             //   member_pointer_destructure<decltype(field_ptr)>::value_type;
             auto field_name = std::format("{}.{}", table_name, RECURSE::name);
             auto constexpr must_exist = RECURSE::must_exist;
+            using field_type =
+              member_pointer_destructure<decltype(RECURSE::ptr)>::value_type;
 
             std::cout << std::format("wtf: {}\n", must_exist);
 
             auto& inner = into.*field_ptr;
 
-            deserialize<std::decay_t<decltype(inner)>, false>(
-              inner, file, field_name);
+            if constexpr (is_vec<field_type>)
+              deserialize(
+                std::inserter(inner, inner.begin()), file, field_name);
+            else
+              deserialize<std::decay_t<decltype(inner)>, false>(
+                inner, file, field_name);
           }(RECURSES),
           ...);
       },
@@ -780,8 +791,7 @@ class _deser_impl
                                         file const& file,
                                         auto const& table_name)
   {
-    using recurse_descriptor = T::scl_recurse;
-    using recurses = recurse_descriptor::fields;
+    using recurses = T::scl_recurse;
     internal_deserialize_recurse_wrapper<recurses>(into, file, table_name);
   }
 
@@ -849,11 +859,23 @@ class _deser_impl
     using recurses = T::scl_recurse;
 
     std::apply(
-      [&]<typename... R>(R...) {
-        (deserialize<
-           typename member_pointer_destructure<decltype(R::ptr)>::value_type,
-           R::must_exist>(into.*R::ptr, file, R::name),
-         ...);
+      [&]<typename... Rs>(Rs... rs) {
+        (
+          [&]<typename R>(R) {
+            if constexpr (not is_vec<typename member_pointer_destructure<
+                            decltype(R::ptr)>::value_type>)
+              deserialize<typename member_pointer_destructure<
+                            decltype(R::ptr)>::value_type,
+                          R::must_exist>(into.*R::ptr, file, R::name);
+            else
+              deserialize<typename member_pointer_destructure<
+                            decltype(R::ptr)>::value_type,
+                          R::must_exist>(
+                std::inserter(into.*R::ptr, (into.*R::ptr).end()),
+                file,
+                R::name);
+          }(rs),
+          ...);
       },
       recurses());
   }
@@ -881,10 +903,16 @@ class _ser_impl
             // using field_type =
             //   member_pointer_destructure<decltype(field_ptr)>::value_type;
             auto field_name = std::format("{}.{}", table_name, RECURSE::name);
+            using field_type =
+              member_pointer_destructure<decltype(RECURSE::ptr)>::value_type;
 
             auto& inner = into.*field_ptr;
 
-            serialize(inner, file, field_name);
+            if constexpr (is_vec<field_type>)
+              serialize<typename field_type::value_type>(
+                std::span{ inner.begin(), inner.end() }, file, field_name);
+            else
+              serialize(inner, file, field_name);
           }(RECURSES),
           ...);
       },
@@ -897,8 +925,7 @@ class _ser_impl
                                       file& file,
                                       auto const& table_name)
   {
-    using recurse_descriptor = T::scl_recurse;
-    using recurses = recurse_descriptor::fields;
+    using recurses = T::scl_recurse;
     internal_serialize_recurse_wrapper<recurses>(into, file, table_name);
   }
 
@@ -962,20 +989,19 @@ class _ser_impl
   }
 
   template<has_scl_fields_descriptor T>
-  static void serialize(std::convertible_to<std::span<T const>> auto from,
+  static void serialize(std::span<T const> from,
                         file& file,
                         std::string_view table_name)
   {
-    using field_descriptor = T::scl_fields;
-    using fields = field_descriptor::fields;
+    using fields = T::scl_fields;
 
     table_array array;
 
     for (auto const& val : from) {
       table table_;
 
-      inner_serialize_fields<fields>(from, table_);
-      inner_serialize_recurse<T>(from, file, table_name);
+      inner_serialize_fields<fields>(val, table_);
+      inner_serialize_recurse<T>(val, file, table_name);
 
       array.push_back(std::move(table_));
     }
@@ -1039,5 +1065,4 @@ serialize(auto const& from, file& into)
 {
   _ser_impl::serialize(from, into);
 }
-
 };

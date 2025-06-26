@@ -1,9 +1,10 @@
-#include "../src/scl.hh"
+#include "../include/scl.hh"
 #include <format>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <regex>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -37,21 +38,20 @@ enum_ser(Enum const in)
 
 using enum_descriptor = scl::enum_field_descriptor<Enum, enum_deser, enum_ser>;
 
+struct sub
+{
+  using scl_fields = std::tuple<>;
+  using scl_recurse = std::tuple<>;
+};
+
 struct test
 {
-  std::vector<std::string> x;
-  Enum e;
   std::optional<std::string> m;
+  std::vector<sub> s;
 
-  using scl_fields = std::tuple<
-    // scl::field<&test::x, "foogle">,
-    scl::field<&test::m, "halo">
-    // scl::enum_field<&test::e, "enum", enum_descriptor>
-    >;
+  using scl_fields = std::tuple<scl::field<&test::m, "halo">>;
 
-  // inner_t inner;
-  // using scl_recurse =
-  //   scl::field_descriptor<scl::field<&test::inner, "inner"_f>>;
+  using scl_recurse = std::tuple<scl::field<&test::s, "s">>;
 };
 
 std::string
@@ -75,7 +75,7 @@ main()
   test t;
   // scl::deserialize(t, scl, "test");
 
-  scl::deserialize(t, scl, "test");
+  scl::deserialize(t, scl);
 
   // for (auto const& m : t.x)
   //   std::cout << m << std::endl;

@@ -1,0 +1,21 @@
+[hewg]
+version = { 0 2 1 }
+type = "library"
+
+[project]
+version = { 0 1 0 }
+name = "scl"
+description = "simple configuration language with extensive metaprogramming support for c++"
+authors = { "crow" }
+
+[flags]
+cxx = { "-Wextra" "-Werror" "-std=c++23" }
+
+[libraries]
+
+[files]
+cxx = {
+	"scl.cc"
+}
+
+c = { }
