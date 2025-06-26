@@ -44,7 +44,7 @@ SRC=
 INCLUDE=
 CSRC=
 
-PUBLIC_HEADERS=src/scl.hh
+PUBLIC_HEADERS=include/scl.hh
 
 CXXFLAGS=-MMD @compile_flags.txt  -ftemplate-backtrace-limit=0
 CFLAGS=-MMD @ccompile_flags.txt 
