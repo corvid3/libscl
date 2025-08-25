@@ -1,21 +1,26 @@
 [hewg]
-version = { 0 2 1 }
+version = "0.2.1"
 type = "library"
 
 [project]
-version = { 0 1 0 }
+version = "0.1.0"
+org = "crow"
 name = "scl"
 description = "simple configuration language with extensive metaprogramming support for c++"
 authors = { "crow" }
 
 [flags]
-cxx = { "-Wextra" "-Werror" "-std=c++23" }
 
-[libraries]
+[depends]
+internal = { }
+external = { }
 
-[files]
-cxx = {
-	"scl.cc"
-}
+[cxx]
+std = 23
+flags = { "-Wextra" "-Werror" }
+sources = { "scl.cc" }
 
-c = { }
+[c]
+std = 17
+flags = { }
+sources = { }

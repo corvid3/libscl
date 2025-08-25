@@ -1,9 +1,6 @@
 # test
-[test]
-foogle = { "fooba\1" "thungus\"" }
-enum = "executable"
 
-[inner]
-agga = "string"
-noob = false
+[s]
+b = 2 
 
+[[m]]

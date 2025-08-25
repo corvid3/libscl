@@ -769,8 +769,6 @@ class _deser_impl
             using field_type =
               member_pointer_destructure<decltype(RECURSE::ptr)>::value_type;
 
-            std::cout << std::format("wtf: {}\n", must_exist);
-
             auto& inner = into.*field_ptr;
 
             if constexpr (is_vec<field_type>)
@@ -1028,9 +1026,23 @@ class _ser_impl
   {
     using recurses = T::scl_recurse;
 
-    std::apply([&]<typename... R>(
-                 R...) { (serialize(into.*R::ptr, file, R::name), ...); },
-               recurses());
+    // std::apply([&]<typename... R>(
+    //              R...) { (serialize(into.*R::ptr, file, R::name), ...); },
+    //            recurses());
+
+    std::apply(
+      [&]<typename... Rs>(Rs... rs) {
+        (
+          [&]<typename R>(R) {
+            if constexpr (not is_vec<typename member_pointer_destructure<
+                            decltype(R::ptr)>::value_type>)
+              serialize(into.*R::ptr, file, R::name);
+            else
+              serialize(std::span(into.*R::ptr), file, R::name);
+          }(rs),
+          ...);
+      },
+      recurses());
   }
 
   friend void serialize(auto const&, file&, std::string_view);

@@ -44,14 +44,20 @@ struct sub
   using scl_recurse = std::tuple<>;
 };
 
+struct e
+{
+  int b;
+  using scl_fields = std::tuple<scl::field<&e::b, "b">>;
+};
+
 struct test
 {
-  std::optional<std::string> m;
-  std::vector<sub> s;
+  std::vector<sub> m;
+  e s;
 
-  using scl_fields = std::tuple<scl::field<&test::m, "halo">>;
-
-  using scl_recurse = std::tuple<scl::field<&test::s, "s">>;
+  // using scl_fields = std::tuple<scl::field<&test::m, "halo">>;
+  using scl_recurse =
+    std::tuple<scl::field<&test::m, "m">, scl::field<&test::s, "s">>;
 };
 
 std::string
@@ -81,6 +87,6 @@ main()
   //   std::cout << m << std::endl;
 
   scl::file e;
-  scl::serialize(t, e, "test");
+  scl::serialize(t, e);
   std::cout << e.serialize();
 }
