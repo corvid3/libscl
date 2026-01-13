@@ -330,7 +330,8 @@ public:
 
 // alllll the wayy down here...
 template<typename T>
-array::operator std::vector<T>()
+array::
+operator std::vector<T>()
 {
   std::vector<T> out;
 
@@ -545,11 +546,11 @@ operator""_f()
 
 template<typename T>
   requires std::is_enum_v<T>
-using enum_deserialization_function = std::optional<T>(*)(std::string_view);
+using enum_deserialization_function = std::optional<T> (*)(std::string_view);
 
 template<typename T>
   requires std::is_enum_v<T>
-using enum_serialize_function = std::string_view(*)(T);
+using enum_serialize_function = std::string_view (*)(T);
 
 template<typename T>
 using X = T;
@@ -765,7 +766,7 @@ class _deser_impl
             // using field_type =
             //   member_pointer_destructure<decltype(field_ptr)>::value_type;
             auto field_name = std::format("{}.{}", table_name, RECURSE::name);
-            auto constexpr must_exist = RECURSE::must_exist;
+            // auto constexpr must_exist = RECURSE::must_exist;
             using field_type =
               member_pointer_destructure<decltype(RECURSE::ptr)>::value_type;
 
