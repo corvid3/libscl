@@ -1,5 +1,5 @@
 #include <charconv>
-#include <lexible.hh>
+#include <crow.lexible/lexible.hh>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -62,22 +62,23 @@ token_name(TokenType t)
 
 namespace morphemes {
 using namespace std::string_view_literals;
+using namespace lexible::literal;
 
-constexpr auto skip_morpheme_regex = "(\\s+)|(#.*\\n)"sv;
+constexpr auto skip_morpheme_regex = "(\\s+)|(#.*\\n)"_cs;
 
 constexpr auto table_decl_regex =
-  "\\[([-0-9a-zA-Z_]+)(\\.[-0-9a-zA-Z_]+)*\\]"sv;
+  "\\[([-0-9a-zA-Z_]+)(\\.[-0-9a-zA-Z_]+)*\\]"_cs;
 constexpr auto table_array_decl_regex =
-  "\\[\\[([-0-9a-zA-Z_]+)(\\.[-0-9a-zA-Z_]+)*\\]\\]"sv;
+  "\\[\\[([-0-9a-zA-Z_]+)(\\.[-0-9a-zA-Z_]+)*\\]\\]"_cs;
 
-constexpr auto key_morpheme_regex = "[-a-zA-Z_]+"sv;
-constexpr auto number_morpheme_regex = "[0-9]+(\\.[0-9]+)?"sv;
-constexpr auto string_morpheme_regex = "\"([^\"\\\\]|\\\\[\\s\\S])*\""sv;
-constexpr auto equals_morpheme_regex = "="sv;
-constexpr auto list_start_morpheme_regex = "\\{"sv;
-constexpr auto list_end_morpheme_regex = "\\}"sv;
-constexpr auto true_morpheme_regex = "true"sv;
-constexpr auto false_morpheme_regex = "false"sv;
+constexpr auto key_morpheme_regex = "[-a-zA-Z_]+"_cs;
+constexpr auto number_morpheme_regex = "[0-9]+(\\.[0-9]+)?"_cs;
+constexpr auto string_morpheme_regex = "\"([^\"\\\\]|\\\\[\\s\\S])*\""_cs;
+constexpr auto equals_morpheme_regex = "="_cs;
+constexpr auto list_start_morpheme_regex = "\\{"_cs;
+constexpr auto list_end_morpheme_regex = "\\}"_cs;
+constexpr auto true_morpheme_regex = "true"_cs;
+constexpr auto false_morpheme_regex = "false"_cs;
 
 using skip_morpheme =
   lexible::morpheme<skip_morpheme_regex, TokenType::WhitespaceSkip, 1000>;

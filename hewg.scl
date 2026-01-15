@@ -12,12 +12,12 @@ authors = { "crow" }
 [flags]
 
 [depends]
-internal = { }
+internal = { "=crow.lexible-0.1.0" }
 external = { }
 
 [cxx]
 std = 23
-flags = { "-Wextra" "-Werror" }
+flags = { "-Wall" "-Wextra" "-Werror" }
 sources = { "scl.cc" }
 
 [c]

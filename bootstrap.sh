@@ -1,8 +1,13 @@
 #!/bin/bash
 
-g++ -std=c++23 -Wall -Wextra -O2 src/scl.cc -c -o scl.o
+if [ ! -d $HOME/.hewg/bootstrap/crow.scl ]; then
+  mkdir -p $HOME/.hewg/bootstrap/crow.scl
+fi
+
+
+g++ -I $HOME/.hewg/bootstrap -std=c++23 -Wall -Wextra -O2 src/scl.cc -c -o scl.o
 ar rcs libscl.a scl.o
 
-sudo cp include/scl.hh /usr/local/include/
-sudo cp libscl.a /usr/local/lib/
+cp include/scl.hh $HOME/.hewg/bootstrap/crow.scl/
+cp libscl.a $HOME/.hewg/bootstrap/
 
